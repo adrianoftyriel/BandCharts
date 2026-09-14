@@ -321,7 +321,7 @@ fun DroidMusicRoot(
             // emptying the stack put the player on a screen that says nothing
             // about the import running behind it.
             navigator.backToRoot()
-            navigator.go(Screen.Library)
+            navigator.go(Screen.Library())
             libraryController.importFromShare(shared)
         }
     }
@@ -423,14 +423,23 @@ fun DroidMusicRoot(
                             settingsSummary = "Name, theme, controls, foot switch, updates",
                             sessionActive = sessionRole != SessionRole.NONE,
                             versionName = DroidMusicApp.VERSION,
-                            onOpenLibrary = { navigator.go(Screen.Library) },
+                            onOpenLibrary = { navigator.go(Screen.Library()) },
                             onOpenSetlists = { navigator.go(Screen.Setlists) },
                             onOpenSessions = { navigator.go(Screen.Session) },
                             onOpenSettings = { navigator.go(Screen.Settings) },
                         )
                     }
 
-                    Screen.Library -> {
+                    is Screen.Library -> {
+                        // Resolved from the id rather than carried on the screen
+                        // itself, so a rename made while this visit is open is
+                        // reflected in the header instead of frozen at whatever
+                        // it was called on the way in.
+                        val libraryBook by setlistController.book.collectAsState()
+                        val addingTo = screen.addingToSetlistId?.let { id ->
+                            libraryBook.setlists.firstOrNull { it.id == id }
+                        }
+
                         LibraryScreen(
                             controller = libraryController,
                             onOpenSong = { song ->
@@ -447,6 +456,16 @@ fun DroidMusicRoot(
                             onNewBlank = { navigator.go(Screen.SongEditor()) },
                             onScan = { navigator.go(Screen.Capture) },
                             onBack = { navigator.back() },
+                            addingToSetlistName = addingTo?.name,
+                            onFinishPicking = { picked ->
+                                // The set list itself, not its id: a set list
+                                // deleted from underneath this visit (another
+                                // device, a moment ago) leaves nothing to add to,
+                                // and silently doing nothing beats an add that
+                                // resurrects it.
+                                addingTo?.let { setlistController.addAll(it, picked) }
+                                navigator.back()
+                            },
                         )
 
                         val filing = filingSong
@@ -505,7 +524,9 @@ fun DroidMusicRoot(
                                     }
                                     navigator.go(Screen.Backstage)
                                 },
-                                onAddSongs = { navigator.go(Screen.Library) },
+                                onAddSongs = {
+                                    navigator.go(Screen.Library(addingToSetlistId = setlist.id))
+                                },
                             )
                         }
                     }

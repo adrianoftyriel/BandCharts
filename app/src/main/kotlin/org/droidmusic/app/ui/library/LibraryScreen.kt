@@ -38,6 +38,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,6 +90,12 @@ fun LibraryScreen(
     onNewBlank: () -> Unit,
     onScan: () -> Unit,
     onBack: () -> Unit,
+    // Non-null when this visit exists to fill one particular set list rather
+    // than to browse. The name is all the header needs, and passing that
+    // instead of the set list itself keeps this screen from having to know
+    // what a set list is.
+    addingToSetlistName: String? = null,
+    onFinishPicking: (List<SongRef>) -> Unit = {},
 ) {
     val index by controller.index.collectAsState()
     var query by remember { mutableStateOf("") }
@@ -137,6 +144,17 @@ fun LibraryScreen(
     // listed.
     val songs = remember(index, query, activeFilter) {
         controller.filter(index.visible, query, activeFilter)
+    }
+
+    // Picking for a set list is bulk selection with nothing else on offer, so
+    // the visit starts in it rather than making somebody find the "Bulk edit"
+    // button for a screen that has no other reason to be open. Left the same
+    // way regardless of how this visit ends - the button below, the back
+    // button, or the system one - so a plain visit to the library afterwards
+    // does not inherit a selection nobody meant to start.
+    DisposableEffect(addingToSetlistName != null) {
+        if (addingToSetlistName != null) controller.startSelecting()
+        onDispose { if (addingToSetlistName != null) controller.stopSelecting() }
     }
 
     transposing?.let { song ->
@@ -207,7 +225,26 @@ fun LibraryScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        if (controller.selecting) {
+        if (addingToSetlistName != null) {
+            Header(
+                title = if (controller.selection.isEmpty()) {
+                    "Add songs"
+                } else {
+                    "${controller.selection.size} selected"
+                },
+                subtitle = "For \"$addingToSetlistName\" - tap to pick, tap again to drop",
+                onBack = onBack,
+                actions = {
+                    TextButton(
+                        onClick = { controller.selectAll(songs.map { it.id }) },
+                    ) { Text("All") }
+                    Button(
+                        enabled = controller.selection.isNotEmpty(),
+                        onClick = { onFinishPicking(controller.selectedSongs()) },
+                    ) { Text("Add Songs") }
+                },
+            )
+        } else if (controller.selecting) {
             Header(
                 title = if (controller.selection.isEmpty()) {
                     "Select charts"
@@ -278,7 +315,11 @@ fun LibraryScreen(
         // should not find that selecting forty of them offers something else.
         // Edit is the one exception, and it is context-menu only because
         // editing forty charts at once is not a thing anybody means.
-        if (controller.selecting) {
+        //
+        // Absent while picking for a set list: that visit already has one job,
+        // and "Add to set list" here would reopen the very choice of set list
+        // this visit exists to skip.
+        if (controller.selecting && addingToSetlistName == null) {
             BulkActionBar(
                 enabled = controller.selection.isNotEmpty(),
                 onTranspose = { transposingMany = controller.selectedSongs() },

@@ -25,7 +25,17 @@ sealed interface Screen {
      */
     data object MainMenu : Screen
 
-    data object Library : Screen
+    /**
+     * The library, either browsed on its own or opened to pick songs for a
+     * running order.
+     *
+     * A non-null [addingToSetlistId] is what turns browsing into picking - the
+     * library forces its own bulk-selection mode on for the visit and swaps its
+     * usual header for one whose only choices are "select everything" and
+     * "add these", rather than routing back through the generic add-to-a-set-list
+     * dialog for a destination the caller already knows.
+     */
+    data class Library(val addingToSetlistId: String? = null) : Screen
     data object Setlists : Screen
     data class SetlistDetail(val setlistId: String) : Screen
     data object Session : Screen
@@ -143,7 +153,7 @@ fun closingViewer(stack: List<Screen>): List<Screen> {
     if (opener != null && opener != Screen.MainMenu) return remaining
 
     return remaining + when (val setlistId = viewer.setlistId) {
-        null -> listOf(Screen.Library)
+        null -> listOf(Screen.Library())
         else -> listOf(Screen.Setlists, Screen.SetlistDetail(setlistId))
     }
 }

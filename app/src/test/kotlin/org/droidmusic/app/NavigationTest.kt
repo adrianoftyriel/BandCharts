@@ -21,8 +21,8 @@ class NavigationTest {
 
     @Test
     fun `a chart opened from the library closes back to the library`() {
-        val stack = listOf(Screen.MainMenu, Screen.Library, viewer)
-        assertEquals(listOf(Screen.MainMenu, Screen.Library), closingViewer(stack))
+        val stack = listOf(Screen.MainMenu, Screen.Library(), viewer)
+        assertEquals(listOf(Screen.MainMenu, Screen.Library()), closingViewer(stack))
     }
 
     @Test
@@ -44,7 +44,7 @@ class NavigationTest {
     @Test
     fun `a chart with nothing under it closes to the library`() {
         val stack = listOf(Screen.MainMenu, viewer)
-        assertEquals(listOf(Screen.MainMenu, Screen.Library), closingViewer(stack))
+        assertEquals(listOf(Screen.MainMenu, Screen.Library()), closingViewer(stack))
     }
 
     @Test
@@ -61,11 +61,11 @@ class NavigationTest {
     fun `closing leaves every stacked chart, not just the top one`() {
         val stack = listOf(
             Screen.MainMenu,
-            Screen.Library,
+            Screen.Library(),
             Screen.Viewer("song-1"),
             Screen.Viewer("song-2"),
         )
-        assertEquals(listOf(Screen.MainMenu, Screen.Library), closingViewer(stack))
+        assertEquals(listOf(Screen.MainMenu, Screen.Library()), closingViewer(stack))
     }
 
     @Test
@@ -79,7 +79,7 @@ class NavigationTest {
 
     @Test
     fun `a stack that is not showing a chart is left alone`() {
-        val stack = listOf(Screen.MainMenu, Screen.Library)
+        val stack = listOf(Screen.MainMenu, Screen.Library())
         assertSame(stack, closingViewer(stack))
     }
 }
