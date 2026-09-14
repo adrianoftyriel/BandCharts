@@ -81,7 +81,14 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - uses: android-actions/setup-android@v3
+      # Pinned by commit rather than the floating v3 tag, and packages trimmed
+      # to platform-tools: the default also asks for "tools", the long-retired
+      # monolithic SDK Tools package. Google has now dropped it from the SDK's
+      # own repository, so sdkmanager can no longer find it at any version of
+      # this action, v4 included - it is not something a version bump fixes.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v4
 
