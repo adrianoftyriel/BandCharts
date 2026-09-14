@@ -661,23 +661,35 @@ fun DroidMusicRoot(
                                 saving = libraryController.savingChart,
                                 error = libraryController.saveError,
                                 onSave = { title, body ->
+                                    val fromScratch = existing == null &&
+                                        screen.seedText.isEmpty() && screen.seedTitle.isEmpty()
                                     libraryController.saveChart(
                                         title = title,
                                         text = body,
                                         replacing = existing,
                                     ) { saved ->
-                                        // Into the viewer, not back to the list.
-                                        // Somebody who has just written a chart
-                                        // wants to see whether it reads properly,
-                                        // and that is the next thing they would
-                                        // tap anyway.
-                                        viewerController.open(
-                                            saved.id,
-                                            null,
-                                            -1,
-                                            settings.viewer.unicodeAccidentals,
-                                        )
-                                        navigator.replace(Screen.Viewer(saved.id))
+                                        if (fromScratch) {
+                                            // Back to the library, not the chart.
+                                            // A song typed in from a blank editor
+                                            // was filed, not read - unlike an
+                                            // import or an edit, there is nothing
+                                            // here to check by looking at it.
+                                            navigator.back()
+                                        } else {
+                                            // Into the viewer, not back to the
+                                            // list. Somebody who has just
+                                            // imported or edited a chart wants to
+                                            // see whether it reads properly, and
+                                            // that is the next thing they would
+                                            // tap anyway.
+                                            viewerController.open(
+                                                saved.id,
+                                                null,
+                                                -1,
+                                                settings.viewer.unicodeAccidentals,
+                                            )
+                                            navigator.replace(Screen.Viewer(saved.id))
+                                        }
                                     }
                                 },
                                 onBack = { navigator.back() },
