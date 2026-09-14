@@ -212,14 +212,17 @@ class SetlistController(
      */
     fun adopt(incoming: Setlist, from: String?) {
         scope.launch {
-            val taken = SetlistCodec.adopt(
+            // Matched and saved as one step by the repository, not read here
+            // and saved after: a leader's reconnect catch-up can arrive within
+            // milliseconds of the push that prompted it, and deciding "new or
+            // already here" from a book read before either write landed is how
+            // the same running order was being saved twice.
+            val taken = repository.adopt(
                 incoming = incoming,
-                existing = repository.book.value.setlists,
                 library = library.index.value,
                 now = System.currentTimeMillis(),
                 newId = { UUID.randomUUID().toString() },
             )
-            repository.save(taken.setlist)
             Diagnostics.log(
                 Area.SETLIST,
                 (if (taken.replaced) "updated" else "added") +

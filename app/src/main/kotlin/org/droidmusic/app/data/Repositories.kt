@@ -5,6 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import org.droidmusic.library.LibraryIndex
 import org.droidmusic.library.Setlist
+import org.droidmusic.library.SetlistCodec
+import org.droidmusic.library.SetlistImport
 import org.droidmusic.library.SongRef
 import org.droidmusic.library.SourceRef
 
@@ -121,6 +123,36 @@ class SetlistRepository(directory: File, scope: CoroutineScope) {
 
     suspend fun delete(id: String) = store.update { current ->
         current.copy(setlists = current.setlists.filterNot { it.id == id })
+    }
+
+    /**
+     * Takes a set list from elsewhere and matches it against the book, in one
+     * transaction rather than a read followed later by a [save].
+     *
+     * The two have to be one operation. A leader's reconnect catch-up can land
+     * within milliseconds of the push that prompted it, and a read of [book]
+     * taken before either write is a snapshot that is already out of date by
+     * the time the second one is decided from it - both calls find nothing
+     * already here and both save a fresh copy, and the same running order
+     * arrives on the screen twice. Deciding inside [JsonStore.update] means the
+     * second call is matched against the *first call's own result*, because
+     * that is what the store's mutex guarantees "current" is by the time this
+     * runs.
+     */
+    suspend fun adopt(
+        incoming: Setlist,
+        library: LibraryIndex,
+        now: Long,
+        newId: () -> String,
+    ): SetlistImport {
+        lateinit var taken: SetlistImport
+        store.update { current ->
+            taken = SetlistCodec.adopt(incoming, current.setlists, library, now, newId)
+            current.copy(
+                setlists = current.setlists.filterNot { it.id == taken.setlist.id } + taken.setlist,
+            )
+        }
+        return taken
     }
 
     /**
