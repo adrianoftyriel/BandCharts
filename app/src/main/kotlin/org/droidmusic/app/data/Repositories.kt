@@ -98,6 +98,9 @@ class LibraryRepository(directory: File, scope: CoroutineScope) {
     suspend fun restoreHidden() = store.update { current ->
         current.copy(songs = current.songs.map { if (it.hidden) it.copy(hidden = false) else it })
     }
+
+    /** Replaces the whole index with one read back from a backup. */
+    suspend fun restore(index: LibraryIndex) = store.set(index.copy(updatedAt = System.currentTimeMillis()))
 }
 
 @kotlinx.serialization.Serializable
@@ -182,4 +185,7 @@ class SetlistRepository(directory: File, scope: CoroutineScope) {
     }
 
     fun find(id: String): Setlist? = store.state.value.setlists.firstOrNull { it.id == id }
+
+    /** Replaces every set list with the ones read back from a backup. */
+    suspend fun restore(book: SetlistBook) = store.set(book)
 }

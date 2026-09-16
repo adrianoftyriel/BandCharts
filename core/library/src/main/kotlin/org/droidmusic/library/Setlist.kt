@@ -51,6 +51,12 @@ data class Setlist(
      * Null on a list this device made itself.
      */
     val originId: String? = null,
+    /**
+     * Off the leader's radar without being deleted - the running order for a
+     * one-off gig two years ago is worth keeping in case the band plays that
+     * venue again, but it should not sit in the way of next Friday's list.
+     */
+    val archived: Boolean = false,
 ) {
     val size: Int get() = entries.size
 

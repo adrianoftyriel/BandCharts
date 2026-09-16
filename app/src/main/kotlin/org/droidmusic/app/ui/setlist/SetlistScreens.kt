@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import org.droidmusic.app.ui.common.ChoicePill
 import org.droidmusic.app.ui.common.EmptyState
 import org.droidmusic.app.ui.common.Header
 import org.droidmusic.app.ui.common.HeaderAction
@@ -76,6 +79,13 @@ fun SetlistsScreen(
     val book by controller.book.collectAsState()
     var creating by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
+    var showArchived by remember { mutableStateOf(false) }
+
+    val activeCount = remember(book) { book.setlists.count { !it.archived } }
+    val archivedCount = remember(book) { book.setlists.size - activeCount }
+    val visible = remember(book, showArchived) {
+        book.setlists.filter { it.archived == showArchived }
+    }
 
     // The set list a press and hold was on, and the one being edited. Held
     // apart so the edit dialog survives the menu closing under it.
@@ -105,7 +115,7 @@ fun SetlistsScreen(
                 onBack = { controller.stopSelecting() },
                 actions = {
                     TextButton(
-                        onClick = { controller.selectAll(book.setlists.map { it.id }) },
+                        onClick = { controller.selectAll(visible.map { it.id }) },
                     ) { Text("All") }
                     TextButton(onClick = { controller.stopSelecting() }) { Text("Done") }
                 },
@@ -113,7 +123,7 @@ fun SetlistsScreen(
         } else {
             Header(
                 title = "Set lists",
-                subtitle = "${book.setlists.size} saved",
+                subtitle = "$activeCount saved" + if (archivedCount > 0) ", $archivedCount archived" else "",
                 onBack = onBack,
                 actions = {
                     HeaderAction(Icons.Filled.Download, "Open a set list someone sent") {
@@ -173,6 +183,16 @@ fun SetlistsScreen(
             )
         }
 
+        if (archivedCount > 0 && !controller.selecting) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ChoicePill(text = "Active", selected = !showArchived, onClick = { showArchived = false })
+                ChoicePill(text = "Archived", selected = showArchived, onClick = { showArchived = true })
+            }
+        }
+
         if (book.setlists.isEmpty()) {
             EmptyState(
                 title = "No set lists yet",
@@ -183,18 +203,27 @@ fun SetlistsScreen(
                     Button(onClick = { newName = ""; creating = true }) { Text("New set list") }
                 },
             )
+        } else if (visible.isEmpty()) {
+            EmptyState(
+                title = if (showArchived) "Nothing archived" else "All set lists are archived",
+                body = if (showArchived) {
+                    "Set lists you archive show up here instead of in the main list."
+                } else {
+                    "Unarchive one from the Archived tab to bring it back."
+                },
+            )
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
                     SectionLabel(
                         if (controller.selecting) {
-                            "${controller.selection.size} of ${book.setlists.size} selected"
+                            "${controller.selection.size} of ${visible.size} selected"
                         } else {
                             "hold one for what you can do to it"
                         },
                     )
                 }
-                itemsIndexed(book.setlists, key = { _, it -> it.id }) { _, setlist ->
+                itemsIndexed(visible, key = { _, it -> it.id }) { _, setlist ->
                     SetlistRow(
                         setlist = setlist,
                         selecting = controller.selecting,
@@ -209,6 +238,9 @@ fun SetlistsScreen(
                         onSelect = { controller.toggleSelected(setlist.id) },
                         onEdit = { editing = setlist },
                         onSend = { controller.export(setlist) },
+                        onToggleArchive = {
+                            if (setlist.archived) controller.unarchive(setlist) else controller.archive(setlist)
+                        },
                         onDelete = { deleting = listOf(setlist) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
@@ -304,6 +336,7 @@ private fun SetlistRow(
     onSelect: () -> Unit,
     onEdit: () -> Unit,
     onSend: () -> Unit,
+    onToggleArchive: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -321,6 +354,10 @@ private fun SetlistRow(
             DropdownMenuItem(
                 text = { Text("Send to someone") },
                 onClick = { menuOpen = false; onSend() },
+            )
+            DropdownMenuItem(
+                text = { Text(if (setlist.archived) "Unarchive" else "Archive") },
+                onClick = { menuOpen = false; onToggleArchive() },
             )
             HorizontalDivider()
             DropdownMenuItem(
@@ -369,6 +406,7 @@ private fun SetlistRow(
                         "${setlist.size} songs",
                         setlist.venue,
                         setlist.date,
+                        "archived".takeIf { setlist.archived },
                     ).joinToString(" - "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -502,6 +540,11 @@ fun SetlistDetailScreen(
             actions = {
                 HeaderAction(Icons.Filled.Add, "Add songs", onAddSongs)
                 HeaderAction(Icons.Filled.Share, "Send") { controller.export(setlist) }
+                if (setlist.archived) {
+                    HeaderAction(Icons.Filled.Unarchive, "Unarchive") { controller.unarchive(setlist) }
+                } else {
+                    HeaderAction(Icons.Filled.Archive, "Archive") { controller.archive(setlist) }
+                }
                 HeaderAction(Icons.Filled.Delete, "Delete") { controller.delete(setlist.id) }
             },
         )

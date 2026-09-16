@@ -137,6 +137,28 @@ class SetlistTest {
     }
 
     @Test
+    fun `a new set list is not archived`() {
+        assertFalse(set.archived)
+    }
+
+    @Test
+    fun `archiving round trips through json alongside everything else`() {
+        val archived = set.copy(archived = true)
+        val bundle = SetlistCodec.bundle(archived, exportedBy = null, producer = null, now = 0L)
+        val decoded = SetlistCodec.decode(SetlistCodec.encode(bundle))
+        assertNotNull(decoded)
+        assertTrue(decoded!!.setlist.archived)
+    }
+
+    @Test
+    fun `a set list from before archiving existed reads as not archived`() {
+        val text = """{"formatVersion":1,"setlist":{"id":"s1","name":"X","entries":[]}}"""
+        val decoded = SetlistCodec.decode(text)
+        assertNotNull(decoded)
+        assertFalse(decoded!!.setlist.archived)
+    }
+
+    @Test
     fun `exported file names are safe`() {
         assertEquals(
             "Friday-at-the-Anchor.dmset",

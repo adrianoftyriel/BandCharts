@@ -36,6 +36,7 @@ fun SettingsScreen(
     onOpenControls: () -> Unit,
     onOpenUpdates: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenBackupRestore: () -> Unit,
     onBack: () -> Unit,
     versionName: String,
     releaseTag: String?,
@@ -174,6 +175,14 @@ fun SettingsScreen(
                 subtitle = "Fetches the newest build from GitHub and installs it. Nothing is " +
                     "checked or downloaded until you ask for it.",
                 onClick = onOpenUpdates,
+            )
+
+            SectionLabel("Your data")
+
+            SettingRow(
+                title = "Backup & restore",
+                subtitle = "Save the whole library and every set list to a file, or bring one back.",
+                onClick = onOpenBackupRestore,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))

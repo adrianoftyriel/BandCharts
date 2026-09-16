@@ -49,6 +49,7 @@ sealed interface Screen {
     data object Backstage : Screen
     data object Settings : Screen
     data object FootSwitchSetup : Screen
+    data object Backup : Screen
 
     /** How the page is turned and how it is laid out: everything under the hand. */
     data object Controls : Screen

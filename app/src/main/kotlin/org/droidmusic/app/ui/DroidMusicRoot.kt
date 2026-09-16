@@ -32,6 +32,8 @@ import org.droidmusic.app.capture.CaptureScreen
 import org.droidmusic.app.diag.DiagnosticsScreen
 import org.droidmusic.app.ui.backstage.BackstageController
 import org.droidmusic.app.ui.backstage.BackstageScreen
+import org.droidmusic.app.ui.backup.BackupController
+import org.droidmusic.app.ui.backup.BackupScreen
 import org.droidmusic.app.ui.library.LibraryController
 import org.droidmusic.app.ui.library.ImportTextDialog
 import org.droidmusic.app.ui.library.ImportUrlDialog
@@ -121,6 +123,17 @@ fun DroidMusicRoot(
             scope = app.appScope,
             library = app.library,
             settings = app.settings,
+        )
+    }
+
+    val backupController = remember {
+        BackupController(
+            context = context,
+            scope = app.appScope,
+            library = app.library,
+            setlists = app.setlists,
+            settings = app.settings,
+            appVersion = DroidMusicApp.VERSION,
         )
     }
 
@@ -631,9 +644,15 @@ fun DroidMusicRoot(
                         onOpenControls = { navigator.go(Screen.Controls) },
                         onOpenUpdates = { navigator.go(Screen.Updates) },
                         onOpenDiagnostics = { navigator.go(Screen.Diagnostics) },
+                        onOpenBackupRestore = { navigator.go(Screen.Backup) },
                         onBack = { navigator.back() },
                         versionName = DroidMusicApp.VERSION,
                         releaseTag = updateController.currentTag,
+                    )
+
+                    Screen.Backup -> BackupScreen(
+                        controller = backupController,
+                        onBack = { navigator.back() },
                     )
 
                     Screen.Capture -> CaptureScreen(

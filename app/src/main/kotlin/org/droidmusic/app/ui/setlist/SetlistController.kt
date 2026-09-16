@@ -131,6 +131,15 @@ class SetlistController(
     }
 
     /**
+     * Off the running list without deleting it - a set list for a venue the
+     * band plays once a year is worth keeping, just not in the way of next
+     * Friday's.
+     */
+    fun archive(setlist: Setlist) = save(setlist.copy(archived = true))
+
+    fun unarchive(setlist: Setlist) = save(setlist.copy(archived = false))
+
+    /**
      * Writes the set list to a shareable file and opens the share sheet.
      *
      * The file goes into the cache directory behind a FileProvider, so the
