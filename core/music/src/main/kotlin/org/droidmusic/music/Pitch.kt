@@ -45,7 +45,27 @@ data class Note(val letter: Int, val alter: Int) {
         val wantedMove = Math.floorMod(interval.semitones, 12)
         // The alteration absorbs whatever the letter movement did not account for.
         val delta = ((wantedMove - naturalMove + 18) % 12) - 6
-        return Note(newLetter, alter + delta)
+        val alteration = alter + delta
+        if (alteration in -3..3) return Note(newLetter, alteration)
+        // A chart spelling the same pitch class with double or triple accidentals
+        // (say "Cbb" for Bb) can leave the alteration outside -3..3 after a
+        // far-fetched transposition. Keep the pitch, and push the excess back
+        // onto the letter name so the result is still a legal note instead of a
+        // crash. The ordinary path above is unaffected.
+        val pitch = Math.floorMod(LETTER_SEMITONES[newLetter] + alteration, 12)
+        for (distance in 1..3) {
+            for (sign in intArrayOf(1, -1)) {
+                val candidateLetter = Math.floorMod(newLetter + sign * distance, 7)
+                // The natural of a letter never moves by 4 or more semitones, so
+                // a residue beyond -3..3 (mod 12) is a letter that simply cannot
+                // spell this pitch; keep looking. If it can, spell it.
+                val residue = Math.floorMod(pitch - LETTER_SEMITONES[candidateLetter], 12)
+                if (residue > 3 && residue < 9) continue
+                val candidateAlter = if (residue > 3) residue - 12 else residue
+                return Note(candidateLetter, candidateAlter)
+            }
+        }
+        error("unreachable")
     }
 
     companion object {

@@ -54,6 +54,21 @@ class NoteTest {
         }
     }
 
+    // The parser accepts chords spelled with double accidentals (saying "Cbb"
+    // where a musician would write Bb is wrong, but it is not crash-worthy).
+    // Transposing such a chord into a far-flung key could leave its alteration
+    // outside -3..3, which used to throw and sink the viewer.
+    @Test
+    fun `a double-flat note transposed far still yields a legal spelling`() {
+        val cbb = Note.parse("Cbb")!!.note
+        val interval = Interval.between(Key.parse("B")!!.tonic, Key.parse("Gb")!!.tonic)
+        // Rather than throw, the excess accidental is folded back onto a letter
+        // next to the one the interval implies, keeping the pitch intact.
+        val result = cbb.transpose(interval)
+        assertEquals("Gbb", result.toString())
+        assertEquals(cbb.pitchClass, result.transpose(-interval).pitchClass)
+    }
+
     @Test
     fun `interval between two notes is spelled by those notes`() {
         val bFlat = Note.parse("Bb")!!.note

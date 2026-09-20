@@ -127,8 +127,12 @@ class SessionServer(
             // Any socket problem is the same problem: this follower is gone.
         } finally {
             connection.deviceId?.let { id ->
-                connections.remove(id)
-                _state.value = LeaderSession.withoutFollower(_state.value, id)
+                // Conditional on identity: if a reconnecting device replaced this
+                // connection with a live one before the old socket unwound, the
+                // new one stays put and so does its follower state.
+                if (connections.remove(id, connection)) {
+                    _state.value = LeaderSession.withoutFollower(_state.value, id)
+                }
             }
             runCatching { client.close() }
         }
@@ -214,8 +218,11 @@ class SessionServer(
                 }
             }.onFailure {
                 connection.deviceId?.let { id ->
-                    connections.remove(id)
-                    _state.value = LeaderSession.withoutFollower(_state.value, id)
+                    // Same identity check as the socket handler's finally block:
+                    // a stale send must not evict the follower's live connection.
+                    if (connections.remove(id, connection)) {
+                        _state.value = LeaderSession.withoutFollower(_state.value, id)
+                    }
                 }
                 runCatching { connection.socket.close() }
             }

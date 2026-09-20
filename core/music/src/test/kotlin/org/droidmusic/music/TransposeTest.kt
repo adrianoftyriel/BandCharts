@@ -109,6 +109,16 @@ class TransposeTest {
         val result = Transposer.transpose(s, TransposeRequest(semitones = 2, includeTab = true))
         assertEquals("e|---2---5---|", result.song.lines.filterIsInstance<Line.Tab>().first().text)
     }
+
+    // A whole chart of double-accidental chords is exotic, but the parser will
+    // happily take one, and transposing it into a distant spelling used to
+    // crash rather than produce a readable result.
+    @Test
+    fun `a double-accidental spelling transposes into a distant key without crashing`() {
+        val s = song("{key: B}\n[Cbb]holds")
+        val result = Transposer.transpose(s, TransposeRequest(targetKey = Key.parse("Gb")))
+        assertEquals(listOf("Gbb"), chordsOf(result))
+    }
 }
 
 class TabTransposerTest {
