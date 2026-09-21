@@ -39,7 +39,7 @@ tasks.withType<Test>().configureEach { useJUnit() }
 tasks.register<JavaExec>("convertPage") {
     group = "verification"
     description = "Converts a saved chart page to ChordPro and reports on it."
-    mainClass.set("org.droidmusic.library.ConvertPageKt")
+    mainClass.set("org.bandcharts.library.ConvertPageKt")
     classpath = sourceSets["test"].runtimeClasspath
     argumentProviders.add {
         listOfNotNull(

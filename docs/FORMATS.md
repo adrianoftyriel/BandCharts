@@ -1,6 +1,6 @@
 # Formats
 
-What DroidMusic reads, and what it writes.
+What BandCharts reads, and what it writes.
 
 ---
 
@@ -37,9 +37,9 @@ over as `application/octet-stream` — the same answer it gives for a firmware
 image. Two consequences, both of which used to read as "this app does not
 support ChordPro":
 
-- **Opening one from outside the app.** DroidMusic accepts
+- **Opening one from outside the app.** BandCharts accepts
   `application/octet-stream` on its VIEW and SEND filters, so a chart tapped in
-  a file manager, or shared out of another editor, offers DroidMusic as
+  a file manager, or shared out of another editor, offers BandCharts as
   somewhere to open it. Without that line the system says the file type is not
   supported and there is nothing the app can do about it, because it was never
   asked.
@@ -137,7 +137,7 @@ a label on a line that never had one.
 ### Conditional directives
 
 `{comment-alto: Very softly}` applies only when the selector matches, and `!`
-reverses it. DroidMusic configures neither an instrument nor a user, so only the
+reverses it. BandCharts configures neither an instrument nor a user, so only the
 metadata test can succeed: a selector naming something the chart itself declared
 selects, and anything else does not. A deselected `{start_of_X}` takes the whole
 section with it, contents and directives alike.
@@ -269,7 +269,7 @@ does and, more importantly, what it refuses to do is in
 
 ## Word documents
 
-A `.docx` is a zip with an XML file in it. DroidMusic unzips it, takes the
+A `.docx` is a zip with an XML file in it. BandCharts unzips it, takes the
 characters, and hands them to exactly the same parser everything else goes
 through — so a chord chart typed in Word is sniffed, transposed, key-detected
 and paginated like any other text chart. There is no second code path and no
@@ -412,7 +412,7 @@ preserved when a one-digit fret becomes two.
 
 ---
 
-## `.dmset` — the set list file
+## `.bcset` — the set list file
 
 Plain JSON, on purpose. A band mate on a phone that has never run this app can
 still open the attachment and read what the set is; a binary format would buy
@@ -443,7 +443,7 @@ nothing and cost that.
   },
   "exportedBy": "Jim's Pixel",
   "exportedAt": 0,
-  "producer": "DroidMusic 0.1.0"
+  "producer": "BandCharts 0.1.0"
 }
 ```
 

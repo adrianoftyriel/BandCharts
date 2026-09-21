@@ -262,7 +262,7 @@ introduced the item starts appearing without that code changing.
 Renaming is the same shape of answer. It is stored as an override on the library
 entry (`SongRef.userTitle`) rather than written into the file, which keeps the
 app out of somebody's synced folder and works for every source and every format
-including PDFs. The honest cost is that DroidMusic's name for a chart can then
+including PDFs. The honest cost is that BandCharts's name for a chart can then
 differ from the name every other app shows.
 
 Asking for write access would fix both and is not obviously right: the same grant
@@ -432,7 +432,7 @@ the one that has to work is release-follows-pre-release.
 
 Not the download, and not the checksum. **Android refuses to replace an installed
 app with a package signed by a different key**, and that refusal is the security
-boundary: a substituted APK cannot become the DroidMusic on somebody's phone, it
+boundary: a substituted APK cannot become the BandCharts on somebody's phone, it
 can only fail to install.
 
 The `SHA256SUMS.txt` published with each release is checked, and it is an
@@ -616,7 +616,13 @@ folder can promise that nothing in it is ever touched.
 
 ---
 
-## 8. Band-leader mode
+## 8. ChartSync, the band-leader mode
+
+**ChartSync** is the name on the menu. In the code and for the rest of this
+document it is the session layer, and the two are the same thing. The name
+exists because "start a session" says nothing about what the feature does,
+and somebody who has never opened the app should be able to guess from the
+menu which entry keeps everybody on the same page.
 
 ### Absolute positions, not instructions
 
@@ -1006,7 +1012,7 @@ people learn to skip.
 another phone, and matching an incoming id against a list adopted five minutes
 ago is a way to check the wrong set. The follower checks exactly what the leader
 sent, then resolves it against its own library by content hash and title — the
-same matching a shared `.dmset` goes through.
+same matching a shared `.bcset` goes through.
 
 **Why the protocol version did not move.** See
 [PROTOCOL.md](PROTOCOL.md): `check` and `report` are additive, an older build
@@ -1192,7 +1198,7 @@ and a random UUID does that perfectly.
 
 The app used to open on the library, with set lists and sessions behind text
 buttons in a row under the header. That makes the library *the app* and the other
-three a detour, which is the wrong shape the moment somebody opens DroidMusic to
+three a detour, which is the wrong shape the moment somebody opens BandCharts to
 join a session rather than to find a chart — and joining a session is what
 happens at every rehearsal.
 
@@ -1443,7 +1449,7 @@ because they are the whole argument for the shape:
   already looks exactly like this, so nothing needs migrating and no code path
   needs an "if this song has parts" branch. `partsOfSong` on a plain chart
   returns that chart.
-- **Nothing on disk changed meaning.** Every index, backup and `.dmset` ever
+- **Nothing on disk changed meaning.** Every index, backup and `.bcset` ever
   written still decodes, because every new field has a default.
 - **Sharing cost nothing.** Charts are already fetched by content hash, and each
   part keeps its own, so a five-part song is five charts the existing transfer
@@ -1542,7 +1548,7 @@ missing part as already present.
 Both decisions come from the same principle and land in opposite places, which
 is why they are written down.
 
-The **set list** format did *not* move. An older build reading a newer `.dmset`
+The **set list** format did *not* move. An older build reading a newer `.bcset`
 drops the part hashes and falls back to the content hash and the title — which
 is how it already resolved every entry, so it loses nothing it ever had.
 Refusing the file would break a band whose phones are on two versions, at the
@@ -1553,7 +1559,7 @@ The **backup** format did move, to 2. A backup carries the works and the
 grouping on each chart, and an older build ignores unknown keys — so it would
 restore every chart perfectly and the band's grouping not at all, months later,
 silently. That is exactly the partial restore its version check exists to
-refuse. A `.dmset` is handed between phones at a gig; a backup is read once,
+refuse. A `.bcset` is handed between phones at a gig; a backup is read once,
 long afterwards, by whatever happens to be installed. The refusal is the kind
 answer in one case and the cruel one in the other.
 

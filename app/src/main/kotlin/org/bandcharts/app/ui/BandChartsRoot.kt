@@ -1,0 +1,889 @@
+package org.bandcharts.app.ui
+
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.withContext
+import org.bandcharts.app.BandChartsApp
+import org.bandcharts.app.data.AppSettings
+import org.bandcharts.app.data.DocumentSources
+import org.bandcharts.app.input.PageAction
+import org.bandcharts.app.capture.CaptureController
+import org.bandcharts.app.capture.CaptureScreen
+import org.bandcharts.app.diag.DiagnosticsScreen
+import org.bandcharts.app.ui.backstage.BackstageController
+import org.bandcharts.app.ui.backstage.BackstageScreen
+import org.bandcharts.app.ui.backup.BackupController
+import org.bandcharts.app.ui.backup.BackupScreen
+import org.bandcharts.app.ui.library.LibraryController
+import org.bandcharts.app.ui.library.ImportTextDialog
+import org.bandcharts.app.ui.library.ImportUrlDialog
+import org.bandcharts.app.ui.library.LibraryScreen
+import org.bandcharts.app.ui.library.SongEditorScreen
+import org.bandcharts.app.ui.session.SessionCoordinator
+import org.bandcharts.app.ui.session.SessionRole
+import org.bandcharts.app.ui.session.SessionScreen
+import org.bandcharts.app.ui.setlist.AddToSetlistDialog
+import org.bandcharts.app.ui.setlist.SetlistController
+import org.bandcharts.app.ui.setlist.SetlistDetailScreen
+import org.bandcharts.app.ui.setlist.SetlistsScreen
+import org.bandcharts.app.ui.settings.ControlsScreen
+import org.bandcharts.app.ui.settings.FootSwitchSetupScreen
+import org.bandcharts.app.ui.settings.SettingsScreen
+import org.bandcharts.app.update.UpdateController
+import org.bandcharts.app.update.UpdatesScreen
+import org.bandcharts.app.ui.viewer.ViewerControls
+import org.bandcharts.app.ui.viewer.ViewerController
+import org.bandcharts.app.ui.viewer.ViewerSurface
+import org.bandcharts.library.Setlist
+import org.bandcharts.library.SetlistCodec
+import org.bandcharts.library.SongRef
+import org.bandcharts.session.arrangementFor
+import org.bandcharts.session.songFor
+
+/**
+ * The whole app, assembled.
+ *
+ * Controllers are remembered here rather than created per screen, so a chart
+ * stays open while the player checks the set list and comes back. The viewer in
+ * particular holds an open file descriptor, and reopening it on every visit
+ * would put a visible stall in the middle of a set.
+ */
+@Composable
+fun BandChartsRoot(
+    app: BandChartsApp,
+    settings: AppSettings,
+    pedalActions: SharedFlow<PageAction>,
+    rawKeys: SharedFlow<Int>,
+    incomingFiles: SharedFlow<android.net.Uri>,
+    sharedText: SharedFlow<String>,
+    onImmersive: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val navigator = rememberNavigator()
+
+    val sessionCoordinator = remember {
+        SessionCoordinator(
+            scope = app.appScope,
+            discovery = app.discovery,
+            settings = app.settings,
+            appVersion = BandChartsApp.VERSION,
+            context = context,
+            library = app.library,
+        )
+    }
+
+    val libraryController = remember {
+        LibraryController(context, app.appScope, app.library, app.settings, app.setlists)
+    }
+
+    val updateController = remember { UpdateController(context, app.appScope) }
+
+    val captureController = remember {
+        CaptureController(context, app.appScope, app.library)
+    }
+
+    val setlistController = remember {
+        SetlistController(
+            context = context,
+            scope = app.appScope,
+            repository = app.setlists,
+            library = app.library,
+            settings = app.settings,
+            appVersion = BandChartsApp.VERSION,
+        )
+    }
+
+    val viewerController = remember {
+        ViewerController(context = context, scope = app.appScope, library = app.library)
+    }
+
+    val backstageController = remember {
+        BackstageController(
+            context = context,
+            scope = app.appScope,
+            library = app.library,
+            settings = app.settings,
+        )
+    }
+
+    val backupController = remember {
+        BackupController(
+            context = context,
+            scope = app.appScope,
+            library = app.library,
+            setlists = app.setlists,
+            settings = app.settings,
+            appVersion = BandChartsApp.VERSION,
+        )
+    }
+
+    var controlsVisible by remember { mutableStateOf(false) }
+
+    // The charts being filed into a set list, from a long press or a bulk
+    // selection in the library. Held here rather than in the library screen
+    // because the set lists are not the library's business.
+    var filingSong by remember { mutableStateOf<List<SongRef>>(emptyList()) }
+
+    // The two "new chart" flows that begin with a dialog rather than a screen.
+    // Held at the root so the URL fetch survives leaving the library.
+    var importingUrl by remember { mutableStateOf(false) }
+    var importingText by remember { mutableStateOf(false) }
+
+    // A finished check goes to the leader, if there is one. Wired here for the
+    // same reason as the viewer's position reporter: the check works identically
+    // when nobody is listening, and knows nothing about sessions.
+    backstageController.onReport = { report -> sessionCoordinator.submitReport(report) }
+
+    // The viewer reports every move; the coordinator decides whether anyone else
+    // needs to hear about it. Wiring it here keeps the viewer ignorant of
+    // sessions entirely.
+    viewerController.positionReporter = { page, userInitiated ->
+        val song = viewerController.song
+        sessionCoordinator.onLocalPosition(
+            songId = song?.id,
+            songTitle = song?.bestTitle,
+            contentHash = song?.contentHash,
+            page = page,
+            setlistIndex = viewerController.setlistIndex,
+            transposeSemitones = viewerController.transposeSemitones,
+            capo = viewerController.capo,
+            userInitiated = userInitiated,
+        )
+    }
+
+    // A new key is broadcast the moment it is chosen. The capo that travels
+    // with it says what this device is fingering and is ignored by everybody
+    // else - see Arrangement in the session core.
+    viewerController.arrangementReporter = {
+        val song = viewerController.song
+        sessionCoordinator.onLocalTranspose(
+            songId = song?.id,
+            songTitle = song?.bestTitle,
+            contentHash = song?.contentHash,
+            page = viewerController.page,
+            setlistIndex = viewerController.setlistIndex,
+            transposeSemitones = viewerController.transposeSemitones,
+            capo = viewerController.capo,
+        )
+    }
+
+    // Collected here, not read inside a helper, so every change to any of them
+    // recomposes the status strip. See SessionCoordinator.statusLine.
+    val sessionRole by sessionCoordinator.role.collectAsState()
+    val leaderState by sessionCoordinator.leaderState.collectAsState()
+    val followerState by sessionCoordinator.followerState.collectAsState()
+    val sessionLabel by sessionCoordinator.sessionLabel.collectAsState()
+    val sessionStatus = SessionCoordinator.statusLine(
+        role = sessionRole,
+        leader = leaderState,
+        follower = followerState,
+        sessionLabel = sessionLabel,
+    )
+
+    val currentScreen = navigator.current
+    val inViewer = currentScreen is Screen.Viewer
+
+    LaunchedEffect(inViewer, controlsVisible) {
+        onImmersive(inViewer && !controlsVisible)
+    }
+
+    // Foot switches only ever mean something in the viewer, and only when the
+    // controls are not covering it.
+    LaunchedEffect(inViewer, controlsVisible) {
+        if (!inViewer) return@LaunchedEffect
+        pedalActions.collect { action ->
+            if (controlsVisible) return@collect
+            when (action) {
+                PageAction.NEXT_PAGE ->
+                    viewerController.turn(true, settings.viewer.unicodeAccidentals)
+                PageAction.PREVIOUS_PAGE ->
+                    viewerController.turn(false, settings.viewer.unicodeAccidentals)
+                PageAction.NEXT_SONG ->
+                    viewerController.nextSong(settings.viewer.unicodeAccidentals)
+                PageAction.PREVIOUS_SONG ->
+                    viewerController.previousSong(settings.viewer.unicodeAccidentals)
+                PageAction.TOGGLE_CONTROLS -> controlsVisible = true
+                PageAction.NONE -> Unit
+            }
+        }
+    }
+
+    // The band leader moved. Follow, unless the state machine already decided we
+    // should not - it only publishes positions that ought to be applied.
+    //
+    // The song is looked up by content hash and title as well as by id, and that
+    // is the whole of why a leader's song changes used to arrive on nobody's
+    // screen: a song id is derived from the source it was indexed from, and a
+    // source id is a UUID made on the device that added the folder, so the
+    // leader's id for a chart matches nothing anywhere else. See
+    // LibraryIndex.songFor.
+    val remotePosition by sessionCoordinator.remotePosition.collectAsState()
+    LaunchedEffect(remotePosition) {
+        val position = remotePosition ?: return@LaunchedEffect
+        val local = app.library.index.value.songFor(position)
+
+        if (local != null && local.id != viewerController.song?.id) {
+            // Followed through this device's own copy of the running order, so
+            // that the header says which song of how many and a foot switch can
+            // still walk out of the end of one song into the next.
+            val following = setlistController.adopted?.takeIf { position.setlistIndex >= 0 }
+            navigator.replace(Screen.Viewer(local.id, setlistIndex = position.setlistIndex))
+            viewerController.open(
+                local,
+                following,
+                position.setlistIndex,
+                settings.viewer.unicodeAccidentals,
+            )
+        } else if (local == null && position.songId != null) {
+            // Said out loud rather than left as a chart that never appears. The
+            // leader is on something this device has not got, which Backstage
+            // exists to catch before the set rather than during it.
+            viewerController.reportMissing(position.songTitle)
+        }
+
+        // The key from the leader, the capo from this device. A leader's capo is
+        // their own fingering and nobody else's - see Arrangement.
+        val arrangement = position.arrangementFor(viewerController.capo)
+        viewerController.applyRemote(
+            page = position.page,
+            transposeSemitones = arrangement.transposeSemitones,
+            unicodeAccidentals = settings.viewer.unicodeAccidentals,
+        )
+    }
+
+    // A set list pushed by the leader is adopted straight away; the player is on
+    // stage and does not want a dialog.
+    val pushed by sessionCoordinator.pushedSetlist.collectAsState()
+    LaunchedEffect(pushed) {
+        val setlist = pushed ?: return@LaunchedEffect
+        setlistController.adopt(setlist, sessionCoordinator.sessionLabel.value)
+        sessionCoordinator.consumePushedSetlist()
+    }
+
+    // The leader has asked everyone to check tonight's charts. Followers are
+    // taken to Backstage without being asked, because the alternative is a
+    // notification nobody sees and a leader waiting on an answer that never
+    // comes. The set list checked is the one that arrived with the request.
+    val requestedCheck by sessionCoordinator.requestedCheck.collectAsState()
+    LaunchedEffect(requestedCheck) {
+        val list = requestedCheck ?: return@LaunchedEffect
+        backstageController.begin(
+            setlist = list,
+            requestedBy = sessionCoordinator.sessionLabel.value ?: "the leader",
+        )
+        sessionCoordinator.consumeRequestedCheck()
+        if (navigator.current != Screen.Backstage) navigator.go(Screen.Backstage)
+    }
+
+    // A file arrived from outside the app - an attachment, a share, a file
+    // manager. A set list is imported; anything else is added to the library,
+    // because the alternative is telling somebody who just tapped a chart that
+    // the app cannot open it when it plainly can.
+    LaunchedEffect(Unit) {
+        incomingFiles.collect { uri ->
+            val name = uri.toString().lowercase()
+            // The name first, because it is free and usually right. Then the
+            // content, because a set list shared out of a messaging app arrives
+            // with its name gone and its type reduced to "some bytes" - and
+            // filing one into the library as a chart would be a wrong answer
+            // that looks like a right one.
+            val isSetlist = name.endsWith(".bcset") || name.endsWith(".json") ||
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.getType(uri) == "application/json" ||
+                        DocumentSources.looksLikeSetlist(context.contentResolver, uri)
+                }
+
+            if (isSetlist) {
+                setlistController.import(uri)
+                navigator.go(Screen.Setlists)
+            } else {
+                libraryController.addFiles(listOf(uri))
+            }
+        }
+    }
+
+    // A chart page shared out of a browser. Back to the library first: that is
+    // where the import reports how it is getting on and, if the page turns out
+    // not to have a chart on it, where it says so. Starting a fetch whose only
+    // progress and only error message are on a screen the player is not looking
+    // at is the same as starting one silently.
+    LaunchedEffect(Unit) {
+        sharedText.collect { shared ->
+            // To the library itself, not merely back to the root: the root has
+            // been the menu since the library stopped being the front door, and
+            // emptying the stack put the player on a screen that says nothing
+            // about the import running behind it.
+            navigator.backToRoot()
+            navigator.go(Screen.Library())
+            libraryController.importFromShare(shared)
+        }
+    }
+
+    // Straight into the chart once it lands, for the same reason a scan does:
+    // somebody who shared a chart into the app wanted to read it, and making
+    // them find it in the library again is a step for no reason.
+    val imported = libraryController.imported
+    LaunchedEffect(imported) {
+        val song = imported ?: return@LaunchedEffect
+        libraryController.consumeImported()
+        viewerController.open(song.id, null, -1, settings.viewer.unicodeAccidentals)
+        navigator.go(Screen.Viewer(song.id))
+    }
+
+    BackHandler(enabled = navigator.canGoBack || controlsVisible) {
+        // The system back out of a chart is the same act as the menu's "close
+        // the chart", so it lands in the same place. Anywhere else it is a plain
+        // step back up the stack.
+        when {
+            controlsVisible -> controlsVisible = false
+            navigator.current is Screen.Viewer -> navigator.closeViewer()
+            else -> navigator.back()
+        }
+    }
+
+    /**
+     * Opens a set list at [position] on this device's own copies of the charts.
+     *
+     * The list passed in may have come from another phone - a leader's check
+     * request carries their running order, whose song ids mean nothing here - so
+     * every entry is matched against the local library first, by content hash and
+     * then by title. For a list this device made, that match is the identity and
+     * costs nothing.
+     */
+    fun startSetlist(list: Setlist, position: Int) {
+        val resolution = SetlistCodec.resolve(list, app.library.index.value)
+        val localised = list.copy(
+            entries = resolution.resolved.map { resolved ->
+                resolved.localSongId?.let { resolved.entry.copy(songId = it) } ?: resolved.entry
+            },
+        )
+        val entry = localised.entries.getOrNull(position) ?: return
+        viewerController.open(entry.songId, localised, position, settings.viewer.unicodeAccidentals)
+        // The leader shares the running order as soon as they start it, so
+        // nobody has to be sent a file in the ninety seconds before the first
+        // song.
+        if (sessionRole == SessionRole.LEADER) sessionCoordinator.pushSetlist(localised)
+        navigator.go(Screen.Viewer(entry.songId, localised.id, position))
+    }
+
+    BandChartsTheme(theme = settings.theme) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            // The window is edge to edge, which is what lets a chart use the
+            // whole screen - and it means the system bars are drawn *over* this
+            // app rather than beside it. Nothing outside the viewer wants that:
+            // the header of every other screen was sitting underneath the status
+            // bar, or under the taskbar on a tablet, where it cannot be read or
+            // tapped.
+            //
+            // So the padding is applied here, once, rather than in each of the
+            // seven screens - there is nothing screen-specific about it, and one
+            // screen added later without it is exactly how this came back.
+            //
+            // The viewer is deliberately exempt. It hides the bars while a chart
+            // is open and wants every pixel; its controls take the insets
+            // themselves, below, because showing them brings the bars back.
+            val insets = if (inViewer) {
+                Modifier
+            } else {
+                Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+            }
+
+            Box(Modifier.fillMaxSize().then(insets)) {
+                when (val screen = currentScreen) {
+                    Screen.MainMenu -> {
+                        val menuIndex by app.library.index.collectAsState()
+                        val menuBook by setlistController.book.collectAsState()
+                        MainMenuScreen(
+                            librarySummary = if (menuIndex.visible.isEmpty()) {
+                                "Nothing added yet - point it at a folder"
+                            } else {
+                                "${menuIndex.visible.size} charts in " +
+                                    "${menuIndex.sources.size} places"
+                            },
+                            setlistSummary = menuBook.setlists.firstOrNull()?.let { first ->
+                                if (menuBook.setlists.size == 1) {
+                                    "${first.name} - ${first.size} songs"
+                                } else {
+                                    "${menuBook.setlists.size} saved, " +
+                                        "most recently ${first.name}"
+                                }
+                            } ?: "No running orders yet",
+                            sessionSummary = sessionStatus
+                                ?: "Lead the band, or join somebody who is",
+                            settingsSummary = "Name, theme, controls, foot switch, updates",
+                            sessionActive = sessionRole != SessionRole.NONE,
+                            versionName = BandChartsApp.VERSION,
+                            onOpenLibrary = { navigator.go(Screen.Library()) },
+                            onOpenSetlists = { navigator.go(Screen.Setlists) },
+                            onOpenSessions = { navigator.go(Screen.Session) },
+                            onOpenSettings = { navigator.go(Screen.Settings) },
+                        )
+                    }
+
+                    is Screen.Library -> {
+                        // Resolved from the id rather than carried on the screen
+                        // itself, so a rename made while this visit is open is
+                        // reflected in the header instead of frozen at whatever
+                        // it was called on the way in.
+                        val libraryBook by setlistController.book.collectAsState()
+                        val addingTo = screen.addingToSetlistId?.let { id ->
+                            libraryBook.setlists.firstOrNull { it.id == id }
+                        }
+
+                        LibraryScreen(
+                            controller = libraryController,
+                            onOpenSong = { song ->
+                                viewerController.open(song.id, null, -1, settings.viewer.unicodeAccidentals)
+                                navigator.go(Screen.Viewer(song.id))
+                            },
+                            onAddSongToSetlist = { filingSong = listOf(it) },
+                            onAddSongsToSetlist = { filingSong = it },
+                            onEditSong = { song ->
+                                navigator.go(Screen.SongEditor(songId = song.id))
+                            },
+                            onNewFromUrl = { importingUrl = true },
+                            onNewFromText = { importingText = true },
+                            onNewBlank = { navigator.go(Screen.SongEditor()) },
+                            onScan = { navigator.go(Screen.Capture) },
+                            onBack = { navigator.back() },
+                            addingToSetlistName = addingTo?.name,
+                            onFinishPicking = { picked ->
+                                // The set list itself, not its id: a set list
+                                // deleted from underneath this visit (another
+                                // device, a moment ago) leaves nothing to add to,
+                                // and silently doing nothing beats an add that
+                                // resurrects it.
+                                addingTo?.let { setlistController.addAll(it, picked) }
+                                navigator.back()
+                            },
+                        )
+
+                        val filing = filingSong
+                        if (filing.isNotEmpty()) {
+                            AddToSetlistDialog(
+                                songs = filing,
+                                controller = setlistController,
+                                onDismiss = { filingSong = emptyList() },
+                                // A toast rather than a trip to the set list. The
+                                // player is filing twenty songs in a row and wants
+                                // to stay where they are; what they need to know is
+                                // that it landed, and which list it landed in.
+                                onAdded = { setlist ->
+                                    val what = filing.singleOrNull()
+                                        ?.let { "\"${it.bestTitle}\"" }
+                                        ?: "${filing.size} charts"
+                                    Toast.makeText(
+                                        context,
+                                        "Added $what to ${setlist.name}",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    libraryController.stopSelecting()
+                                },
+                            )
+                        }
+                    }
+
+                    Screen.Setlists -> SetlistsScreen(
+                        controller = setlistController,
+                        onBack = { navigator.back() },
+                        onOpen = { navigator.go(Screen.SetlistDetail(it.id)) },
+                    )
+
+                    is Screen.SetlistDetail -> {
+                        val book by setlistController.book.collectAsState()
+                        val setlist = book.setlists.firstOrNull { it.id == screen.setlistId }
+                        if (setlist == null) {
+                            LaunchedEffect(Unit) { navigator.back() }
+                        } else {
+                            val index by app.library.index.collectAsState()
+                            SetlistDetailScreen(
+                                setlist = setlist,
+                                controller = setlistController,
+                                songFor = { id -> index.findById(id) },
+                                onBack = { navigator.back() },
+                                onPlay = { position -> startSetlist(setlist, position) },
+                                onStartSet = {
+                                    backstageController.begin(setlist)
+                                    if (sessionRole == SessionRole.LEADER) {
+                                        // Pushed as well as checked: a follower
+                                        // needs the running order to play from,
+                                        // and the check request is not a set list
+                                        // they keep.
+                                        sessionCoordinator.pushSetlist(setlist)
+                                        sessionCoordinator.requestCheck(setlist)
+                                    }
+                                    navigator.go(Screen.Backstage)
+                                },
+                                onAddSongs = {
+                                    navigator.go(Screen.Library(addingToSetlistId = setlist.id))
+                                },
+                            )
+                        }
+                    }
+
+                    Screen.Backstage -> {
+                        val bandLibrary by sessionCoordinator.aggregate.collectAsState()
+                        val peerFetches by sessionCoordinator.peerFetches.collectAsState()
+                        val backstageIndex by app.library.index.collectAsState()
+                        val sharing by sessionCoordinator.sharing.collectAsState()
+
+                        // A chart that has landed has to stop saying it is
+                        // missing, and only the check can say that - the row is
+                        // reporting whether the file *opens*, which is not
+                        // something the library index knows. Keyed on how many
+                        // have arrived, so it runs once per arrival and not on
+                        // every recomposition; a check already running is
+                        // cancelled and restarted, so a batch of six collapses
+                        // into one check after the last of them.
+                        val arrived = peerFetches.count { it.value.done } + sharing.arrived
+                        LaunchedEffect(arrived) {
+                            if (arrived > 0 && backstageController.setlist != null) {
+                                backstageController.check()
+                            }
+                        }
+                        BackstageScreen(
+                        controller = backstageController,
+                        role = sessionRole,
+                        sessionLabel = sessionLabel,
+                        reports = leaderState?.reports.orEmpty(),
+                        followers = leaderState?.followers.orEmpty(),
+                        aggregate = bandLibrary,
+                        library = backstageIndex,
+                        peerFetches = peerFetches,
+                        onOpenChart = { songId ->
+                            viewerController.open(
+                                songId,
+                                null,
+                                -1,
+                                settings.viewer.unicodeAccidentals,
+                            )
+                            navigator.go(Screen.Viewer(songId))
+                        },
+                        onFetchChart = { chart -> sessionCoordinator.fetchFromBand(chart) },
+                        onStart = {
+                            backstageController.setlist?.let { startSetlist(it, 0) }
+                        },
+                        onOpenSong = { position ->
+                            backstageController.setlist?.let { startSetlist(it, position) }
+                        },
+                        onAskForMissing = {
+                            sessionCoordinator.requestCharts(backstageController.wanted())
+                            // Straight to Session, because that is where the
+                            // leader's answer lands: what it can send, the one
+                            // question about accepting it, and how the transfers
+                            // are getting on. A button whose whole result
+                            // appears on a screen the player is not looking at
+                            // has not done anything as far as they can tell.
+                            navigator.go(Screen.Session)
+                        },
+                        onBack = { navigator.back() },
+                        )
+                    }
+
+                    Screen.Session -> {
+                        val sessionBook by setlistController.book.collectAsState()
+                        SessionScreen(
+                            coordinator = sessionCoordinator,
+                            setlists = sessionBook.setlists,
+                            deviceName = settings.deviceName.ifEmpty { "This device" },
+                            onDeviceNameChange = { name ->
+                                app.settings.updateAsync { it.copy(deviceName = name) }
+                            },
+                            onOpenBackstage = { navigator.go(Screen.Backstage) },
+                            onStartWithSetlists = { name, chosen ->
+                                // On the coordinator's own scope, because the
+                                // navigation below leaves the Sessions screen
+                                // and anything launched from a composition scope
+                                // would be cancelled mid-bind.
+                                sessionCoordinator.lead(name) {
+                                    // Pushed and checked in the order the sets
+                                    // will be played, so the first one is what
+                                    // Backstage opens on and what the band is
+                                    // asked about first.
+                                    for (setlist in chosen) {
+                                        sessionCoordinator.pushSetlist(setlist)
+                                    }
+                                    chosen.firstOrNull()?.let { first ->
+                                        backstageController.begin(first)
+                                        sessionCoordinator.requestCheck(first)
+                                    }
+                                }
+                                navigator.go(Screen.Backstage)
+                            },
+                            onBack = { navigator.back() },
+                        )
+                    }
+
+                    Screen.Settings -> SettingsScreen(
+                        settings = settings,
+                        onChange = { transform -> app.settings.updateAsync(transform) },
+                        onOpenFootSwitchSetup = { navigator.go(Screen.FootSwitchSetup) },
+                        onOpenControls = { navigator.go(Screen.Controls) },
+                        onOpenUpdates = { navigator.go(Screen.Updates) },
+                        onOpenDiagnostics = { navigator.go(Screen.Diagnostics) },
+                        onOpenBackupRestore = { navigator.go(Screen.Backup) },
+                        onBack = { navigator.back() },
+                        versionName = BandChartsApp.VERSION,
+                        releaseTag = updateController.currentTag,
+                    )
+
+                    Screen.Backup -> BackupScreen(
+                        controller = backupController,
+                        onBack = { navigator.back() },
+                    )
+
+                    Screen.Capture -> CaptureScreen(
+                        controller = captureController,
+                        onBack = { navigator.back() },
+                        onOpenSaved = { song ->
+                            // Straight into the viewer. The player photographed it to
+                            // read it, and making them find it in the library again
+                            // is a step for no reason.
+                            viewerController.open(song.id, null, -1, settings.viewer.unicodeAccidentals)
+                            navigator.replace(Screen.Viewer(song.id))
+                        },
+                    )
+
+                    is Screen.SongEditor -> {
+                        val editorIndex by app.library.index.collectAsState()
+                        val existing = screen.songId?.let { editorIndex.findById(it) }
+
+                        // Read off the main thread. A chart in a Drive folder can
+                        // take a moment to arrive, and blocking the frame that
+                        // draws the editor to wait for it shows a white screen.
+                        //
+                        // A remembered value set from an effect rather than
+                        // produceState, for the reason recorded when the delete
+                        // question moved the same way: lint's
+                        // ProduceStateDoesNotAssignValue loses the assignment
+                        // the moment its right-hand side is anything but a
+                        // plain expression, and arguing with it is not worth a
+                        // build.
+                        var loaded by remember(existing?.id, screen.seedText) {
+                            mutableStateOf<String?>(null)
+                        }
+                        LaunchedEffect(existing?.id, screen.seedText) {
+                            loaded = if (existing == null) {
+                                screen.seedText
+                            } else {
+                                libraryController.readChartText(existing).orEmpty()
+                            }
+                        }
+
+                        loaded?.let { text ->
+                            SongEditorScreen(
+                                existing = existing,
+                                seedText = text,
+                                seedTitle = screen.seedTitle,
+                                saving = libraryController.savingChart,
+                                error = libraryController.saveError,
+                                onSave = { title, body ->
+                                    val fromScratch = existing == null &&
+                                        screen.seedText.isEmpty() && screen.seedTitle.isEmpty()
+                                    libraryController.saveChart(
+                                        title = title,
+                                        text = body,
+                                        replacing = existing,
+                                    ) { saved ->
+                                        if (fromScratch) {
+                                            // Back to the library, not the chart.
+                                            // A song typed in from a blank editor
+                                            // was filed, not read - unlike an
+                                            // import or an edit, there is nothing
+                                            // here to check by looking at it.
+                                            navigator.back()
+                                        } else {
+                                            // Into the viewer, not back to the
+                                            // list. Somebody who has just
+                                            // imported or edited a chart wants to
+                                            // see whether it reads properly, and
+                                            // that is the next thing they would
+                                            // tap anyway.
+                                            viewerController.open(
+                                                saved.id,
+                                                null,
+                                                -1,
+                                                settings.viewer.unicodeAccidentals,
+                                            )
+                                            navigator.replace(Screen.Viewer(saved.id))
+                                        }
+                                    }
+                                },
+                                onBack = { navigator.back() },
+                            )
+                        }
+                    }
+
+                    Screen.Controls -> ControlsScreen(
+                        settings = settings,
+                        onChange = { transform -> app.settings.updateAsync(transform) },
+                        onBack = { navigator.back() },
+                    )
+
+                    Screen.Updates -> UpdatesScreen(
+                        controller = updateController,
+                        channel = settings.updateChannel,
+                        onChannelChange = { channel ->
+                            app.settings.updateAsync { it.copy(updateChannel = channel) }
+                        },
+                        onBack = { navigator.back() },
+                        versionName = BandChartsApp.VERSION,
+                    )
+
+                    Screen.Diagnostics -> {
+                        // Collected rather than read: the index is a flow, and
+                        // reading its value inside composition neither subscribes
+                        // nor recomposes - so the header would keep whatever
+                        // number happened to be there the first time this screen
+                        // was drawn.
+                        val index by app.library.index.collectAsState()
+                        DiagnosticsScreen(
+                            // Worked out here rather than inside the screen: what
+                            // is worth knowing about a device is the app's
+                            // business, and the log itself should stay a list of
+                            // facts.
+                            about = listOf(
+                                "App" to BandChartsApp.VERSION +
+                                    (updateController.currentTag?.let { " ($it)" } ?: " (from source)"),
+                                "Device" to settings.deviceName.ifEmpty { "unnamed" },
+                                "Android" to "${android.os.Build.MODEL}, " +
+                                    "API ${android.os.Build.VERSION.SDK_INT}",
+                                "Session" to when (sessionRole) {
+                                    SessionRole.LEADER -> "leading \"${sessionLabel ?: "?"}\" " +
+                                        "with ${leaderState?.followers?.size ?: 0} following"
+                                    SessionRole.FOLLOWER -> "following \"${sessionLabel ?: "?"}\", " +
+                                        "${followerState?.link}, ${followerState?.mode}"
+                                    SessionRole.NONE -> "not in a session"
+                                },
+                                "Library" to "${index.songs.size} charts from " +
+                                    "${index.sources.size} sources",
+                            ),
+                            onBack = { navigator.back() },
+                        )
+                    }
+
+                    Screen.FootSwitchSetup -> FootSwitchSetupScreen(
+                        settings = settings,
+                        pedalEvents = pedalActions,
+                        rawKeys = rawKeys,
+                        onChange = { transform -> app.settings.updateAsync(transform) },
+                        onBack = { navigator.back() },
+                    )
+
+                    is Screen.Viewer -> Box(Modifier.fillMaxSize()) {
+                        ViewerSurface(
+                            controller = viewerController,
+                            preferences = settings.viewer,
+                            onToggleControls = { controlsVisible = !controlsVisible },
+                        )
+
+                        AnimatedVisibility(
+                            visible = controlsVisible,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .windowInsetsPadding(WindowInsets.safeDrawing),
+                        ) {
+                            ViewerControls(
+                                controller = viewerController,
+                                preferences = settings.viewer,
+                                onPreferencesChange = { transform ->
+                                    app.settings.updateAsync {
+                                        it.copy(viewer = transform(it.viewer))
+                                    }
+                                },
+                                sessionStatus = sessionStatus,
+                                canRejoin = followerState?.canRejoin == true,
+                                onRejoin = { sessionCoordinator.rejoin() },
+                                onOpenSetlist = {
+                                    controlsVisible = false
+                                    navigator.go(Screen.Setlists)
+                                },
+                                onOpenSession = {
+                                    controlsVisible = false
+                                    navigator.go(Screen.Session)
+                                },
+                                onOpenSettings = {
+                                    controlsVisible = false
+                                    navigator.go(Screen.Settings)
+                                },
+                                onClose = { controlsVisible = false },
+                                onBack = {
+                                    controlsVisible = false
+                                    navigator.closeViewer()
+                                },
+                                unicodeAccidentals = settings.viewer.unicodeAccidentals,
+                            )
+                        }
+
+                        // A permanent, quiet reminder of who is driving. Always
+                        // visible, because a player who cannot tell whether their own
+                        // page turns will stick has no way to trust the app.
+                        if (sessionStatus != null && !controlsVisible) {
+                            org.bandcharts.app.ui.viewer.ViewerStatusStrip(
+                                text = sessionStatus,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .windowInsetsPadding(WindowInsets.safeDrawing),
+                            )
+                        }
+                    }
+                }
+
+                // Dialogs that belong to no one screen, drawn over whatever is
+                // showing. The URL fetch in particular has to survive the
+                // library being left underneath it.
+                if (importingText) {
+                    ImportTextDialog(
+                        onDismiss = { importingText = false },
+                        onImport = { text ->
+                            importingText = false
+                            navigator.go(Screen.SongEditor(seedText = text))
+                        },
+                    )
+                }
+
+                if (importingUrl) {
+                    ImportUrlDialog(
+                        busy = libraryController.fetchingUrl,
+                        error = libraryController.fetchError,
+                        onDismiss = {
+                            importingUrl = false
+                            libraryController.dismissFetchError()
+                        },
+                        onFetch = { url ->
+                            libraryController.importFromUrl(url) { title, text ->
+                                importingUrl = false
+                                navigator.go(
+                                    Screen.SongEditor(seedText = text, seedTitle = title),
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}

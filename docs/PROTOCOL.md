@@ -1,10 +1,11 @@
-# Band session protocol
+# The ChartSync protocol
 
 Version 1.
 
-A leader and its followers talk over **line-delimited JSON on a plain TCP
+ChartSync is what keeps a band on the same page: one device leads, the rest
+follow it. A leader and its followers talk over **line-delimited JSON on a plain TCP
 socket**, discovered by mDNS, entirely within the local network. Nothing leaves
-the room and there is no server anywhere.
+the room and ChartSync has no server anywhere.
 
 ---
 
@@ -15,13 +16,13 @@ fixed port would collide the moment two people in the same band both tapped
 Start) and advertises:
 
 ```
-service type : _droidmusic._tcp
+service type : _chartsync._tcp
 service name : the session name, as typed
 TXT "leader"  : the leader's device name
 port          : whatever was bound
 ```
 
-Followers browse for `_droidmusic._tcp`, resolve, and connect.
+Followers browse for `_chartsync._tcp`, resolve, and connect.
 
 **Known failure mode.** Some access points block multicast between clients. On
 those networks discovery finds nothing, however well everything else works, and

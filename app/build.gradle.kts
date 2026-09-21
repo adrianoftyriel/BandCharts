@@ -10,8 +10,8 @@ plugins {
 
 // The version comes from gradle.properties, which is also what the release
 // workflow reads. Nothing here invents a version of its own.
-val versionNameValue: String = providers.gradleProperty("droidmusic.versionName").get()
-val versionCodeValue: Int = providers.gradleProperty("droidmusic.versionCode").get().toInt()
+val versionNameValue: String = providers.gradleProperty("bandcharts.versionName").get()
+val versionCodeValue: Int = providers.gradleProperty("bandcharts.versionCode").get().toInt()
 
 /**
  * The release tag this APK belongs to, stamped in by CI.
@@ -25,15 +25,15 @@ val versionCodeValue: Int = providers.gradleProperty("droidmusic.versionCode").g
  * A local build has no tag, and says so. Inventing `v0.1.0` for it would make
  * every laptop build claim to be the release of that name.
  */
-val releaseTagValue: String = providers.gradleProperty("droidmusic.releaseTag")
+val releaseTagValue: String = providers.gradleProperty("bandcharts.releaseTag")
     .orNull.orEmpty().trim()
 
 /**
  * Where the updater looks for releases. A fork that publishes its own builds
  * sets this and its APKs update from its own repository rather than from here.
  */
-val updateRepositoryValue: String = providers.gradleProperty("droidmusic.updateRepository")
-    .orNull.orEmpty().trim().ifEmpty { "adrianoftyriel/DroidMusic" }
+val updateRepositoryValue: String = providers.gradleProperty("bandcharts.updateRepository")
+    .orNull.orEmpty().trim().ifEmpty { "adrianoftyriel/BandCharts" }
 
 /**
  * Release signing, if this build has a keystore to sign with.
@@ -54,11 +54,11 @@ val keystoreProperties = Properties().apply {
 val hasReleaseKeystore = keystoreProperties.containsKey("storeFile")
 
 android {
-    namespace = "org.droidmusic.app"
+    namespace = "org.bandcharts.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "org.droidmusic.app"
+        applicationId = "org.bandcharts.app"
         // 26 is where the platform PDF renderer, the Bluetooth stack and the
         // storage framework all behave consistently enough not to need parallel
         // code paths. Below that the app would be mostly workarounds.

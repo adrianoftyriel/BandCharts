@@ -110,9 +110,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          version=$(sed -n 's/^droidmusic\.versionName=\(.*\)$/\1/p' gradle.properties | head -1 | tr -d '[:space:]')
+          version=$(sed -n 's/^bandcharts\.versionName=\(.*\)$/\1/p' gradle.properties | head -1 | tr -d '[:space:]')
           if [ -z "$version" ]; then
-            echo "::error::Could not read droidmusic.versionName from gradle.properties"
+            echo "::error::Could not read bandcharts.versionName from gradle.properties"
             exit 1
           fi
 
@@ -128,17 +128,17 @@ jobs:
             # v0.1.1 from a tree that says 0.1.1-dev, so the APK and the tag
             # would disagree about what they are. Refuse rather than pick one.
             if [ "$base" != "$version" ]; then
-              echo "::error::droidmusic.versionName is $version. Drop the -dev suffix in gradle.properties before merging to main."
+              echo "::error::bandcharts.versionName is $version. Drop the -dev suffix in gradle.properties before merging to main."
               exit 1
             fi
             tag="v${version}"
-            title="DroidMusic ${tag}"
+            title="BandCharts ${tag}"
             prerelease=false
           else
             # Pre-release tags carry the run number, so every push to dev
             # produces a distinct, ordered tag without anyone bumping anything.
             tag="v${base}-dev.${{ github.run_number }}"
-            title="DroidMusic ${tag} (pre-release)"
+            title="BandCharts ${tag} (pre-release)"
             prerelease=true
           fi
 
@@ -159,7 +159,7 @@ jobs:
       # claiming to be a release nobody published.
       - name: Stamp the release tag into the build
         if: github.ref_name == 'main' || github.ref_name == 'dev'
-        run: echo "droidmusic.releaseTag=${{ steps.release.outputs.tag }}" >> gradle.properties
+        run: echo "bandcharts.releaseTag=${{ steps.release.outputs.tag }}" >> gradle.properties
 
       # Release builds are signed with a real key when the repository has one,
       # and with the debug key when it does not. Writing the keystore here rather
@@ -256,9 +256,9 @@ jobs:
           set -o pipefail
           ./gradlew :app:compileReleaseKotlin :app:compileDebugKotlin 2>&1 | tee compile.log || {
             echo "::group::Compiler errors"
-            grep -E "^e: |^w: .*error" compile.log | sed 's|file:///home/runner/work/DroidMusic/DroidMusic/||' || true
+            grep -E "^e: |^w: .*error" compile.log | sed 's|file:///home/runner/work/BandCharts/BandCharts/||' || true
             echo "::endgroup::"
-            grep -E "^e: " compile.log | sed 's|file:///home/runner/work/DroidMusic/DroidMusic/||' \
+            grep -E "^e: " compile.log | sed 's|file:///home/runner/work/BandCharts/BandCharts/||' \
               | sed 's/^/::error::/' || true
             exit 1
           }
@@ -359,14 +359,14 @@ jobs:
           # mapping and have never been the thing in question.
           mapping=$(find app/build/outputs -name 'mapping.txt' | head -1)
           if [ -n "$mapping" ]; then
-            echo "----- class mapping (org.droidmusic, kotlin, kotlinx) -----"
-            grep -E '^(org\.droidmusic|kotlin|kotlinx)[^ ]* -> ' "$mapping" || true
+            echo "----- class mapping (org.bandcharts, kotlin, kotlinx) -----"
+            grep -E '^(org\.bandcharts|kotlin|kotlinx)[^ ]* -> ' "$mapping" || true
             echo "----- end class mapping -----"
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DroidMusic-apk
+          name: BandCharts-apk
           path: staging/
           if-no-files-found: error
           retention-days: 30
@@ -395,7 +395,7 @@ jobs:
           echo "===================== FAILURE SUMMARY ====================="
           if [ -f compile.log ]; then
             grep -E "^e: " compile.log \
-              | sed 's|file:///home/runner/work/DroidMusic/DroidMusic/||' \
+              | sed 's|file:///home/runner/work/BandCharts/BandCharts/||' \
               | sort -u || echo "(no compiler errors; the failure was later)"
           fi
           # Only the error lines. Lint writes several hundred lines of
@@ -404,7 +404,7 @@ jobs:
           for report in app/build/reports/lint-results-release.txt lint.log; do
             [ -f "$report" ] || continue
             grep -E ": (Error|error):" "$report" \
-              | sed 's|/home/runner/work/DroidMusic/DroidMusic/||' \
+              | sed 's|/home/runner/work/BandCharts/BandCharts/||' \
               | sort -u | head -20 && break
           done
           find app/build/test-results -name '*.xml' -print0 2>/dev/null \
@@ -451,7 +451,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: DroidMusic-apk
+          name: BandCharts-apk
           path: artifacts
 
       # The tag is not recomputed here. It was worked out in the build job and
@@ -476,7 +476,7 @@ jobs:
           # silently replace an APK somebody may already have installed - and now
           # that the app updates itself, may already have been offered.
           if [ "${{ github.ref_name }}" = "main" ] && gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::Release $TAG already exists. Bump droidmusic.versionName in gradle.properties before merging to main."
+            echo "::error::Release $TAG already exists. Bump bandcharts.versionName in gradle.properties before merging to main."
             exit 1
           fi
 
@@ -495,9 +495,9 @@ jobs:
             [ -e "$file" ] || continue
             base=$(basename "$file")
             case "$base" in
-              *release*.apk) cp "$file" "dist/DroidMusic-${version}.apk" ;;
-              *debug*.apk)   cp "$file" "dist/DroidMusic-${version}-debug.apk" ;;
-              *.aab)         cp "$file" "dist/DroidMusic-${version}.aab" ;;
+              *release*.apk) cp "$file" "dist/BandCharts-${version}.apk" ;;
+              *debug*.apk)   cp "$file" "dist/BandCharts-${version}-debug.apk" ;;
+              *.aab)         cp "$file" "dist/BandCharts-${version}.aab" ;;
               *)             cp "$file" "dist/$base" ;;
             esac
             found=$((found + 1))
@@ -541,7 +541,7 @@ jobs:
 
             echo "## Install"
             echo
-            echo "Download \`DroidMusic-${{ needs.build.outputs.version }}.apk\` and open it on the"
+            echo "Download \`BandCharts-${{ needs.build.outputs.version }}.apk\` and open it on the"
             echo "device. Android will ask you to allow installing from this source the first time."
             echo
 
@@ -555,7 +555,7 @@ jobs:
               echo "> same key, so every release here is a separate, unrelated app as far as the"
               echo "> installer is concerned."
               echo ">"
-              echo "> Installing this over an existing DroidMusic fails with \"conflicts with an"
+              echo "> Installing this over an existing BandCharts fails with \"conflicts with an"
               echo "> existing package\". Uninstall first - which erases set lists and the list of"
               echo "> added folders - or set the signing secrets described in the README so that"
               echo "> releases share a key and can update each other."
@@ -573,9 +573,9 @@ jobs:
             echo
             echo "| File | What it is |"
             echo "|---|---|"
-            echo "| \`DroidMusic-${{ needs.build.outputs.version }}.apk\` | Release build. This is the one to install. |"
-            echo "| \`DroidMusic-${{ needs.build.outputs.version }}-debug.apk\` | Debug build, installs alongside the release one. |"
-            echo "| \`DroidMusic-${{ needs.build.outputs.version }}.aab\` | App bundle, for Play Store upload. |"
+            echo "| \`BandCharts-${{ needs.build.outputs.version }}.apk\` | Release build. This is the one to install. |"
+            echo "| \`BandCharts-${{ needs.build.outputs.version }}-debug.apk\` | Debug build, installs alongside the release one. |"
+            echo "| \`BandCharts-${{ needs.build.outputs.version }}.aab\` | App bundle, for Play Store upload. |"
             echo "| \`SHA256SUMS.txt\` | Checksums. |"
             echo
 

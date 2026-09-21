@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DroidMusic"
+rootProject.name = "BandCharts"
 
 // The three core modules are plain Kotlin/JVM on purpose - see docs/DESIGN.md.
 // They hold everything that can be reasoned about without a device, which means

@@ -1,0 +1,322 @@
+package org.bandcharts.library
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * One song as it appears in a set list.
+ *
+ * The per-entry [transposeSemitones] and [capo] are the reason a set list is not
+ * just a list of song ids: the same chart is sung in different keys by different
+ * singers, and the set list is where that decision belongs. Leaving it on the
+ * song would mean a chart could only ever be in one key.
+ *
+ * [title] and [contentHash] are carried alongside [songId] so the entry can
+ * still be resolved on a device where that id means nothing - which is every
+ * device except the one that made the list.
+ */
+@Serializable
+data class SetlistEntry(
+    val songId: String,
+    val title: String,
+    val contentHash: String? = null,
+    val artist: String? = null,
+    val transposeSemitones: Int = 0,
+    val capo: Int = 0,
+    val targetKeyText: String? = null,
+    /** Shown to the band, not the audience: "segue into next", "capo 3, watch the tag". */
+    val note: String? = null,
+    /**
+     * The content hash of every part of this song, when it has more than one.
+     *
+     * A set list entry has always carried the hash of *a* chart, and with parts
+     * that is no longer enough: the leader built the list from the chord chart,
+     * and the drummer wants the drum part. One hash finds the leader's chart or
+     * nothing, and "nothing" is a player whose screen stays blank for that song.
+     *
+     * So every part travels, and each device matches whichever of them it
+     * holds. Empty for a song with a single chart, which is every entry in every
+     * set list written before this existed - and that is what lets an older
+     * `.bcset` still resolve exactly as it always did.
+     *
+     * The format version is deliberately *not* raised for this. An older build
+     * reading a newer list drops this field and falls back to [contentHash] and
+     * [title], which is how it already resolved every entry, so it loses nothing
+     * it ever had - unlike a dropped transposition, which is what that check
+     * exists to prevent. Refusing the file outright would break a band whose
+     * phones are on two versions, at the gig, over a field that costs them
+     * nothing.
+     */
+    val partHashes: List<String> = emptyList(),
+)
+
+@Serializable
+data class Setlist(
+    val id: String,
+    val name: String,
+    val entries: List<SetlistEntry> = emptyList(),
+    val venue: String? = null,
+    val date: String? = null,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    /**
+     * Where this list came from, when it came from somewhere else.
+     *
+     * The id of the copy on the device that first made it. It exists so that a
+     * set list arriving twice is recognised as the same set list: a leader
+     * pushes the running order when the set is started and again when a check is
+     * run, a follower reconnecting is sent it again, and somebody who was mailed
+     * the file opens it twice. Without an identity that survives the crossing,
+     * each of those was a fresh copy, and a band ended a rehearsal with five
+     * identical lists.
+     *
+     * Null on a list this device made itself.
+     */
+    val originId: String? = null,
+    /**
+     * Off the leader's radar without being deleted - the running order for a
+     * one-off gig two years ago is worth keeping in case the band plays that
+     * venue again, but it should not sit in the way of next Friday's list.
+     */
+    val archived: Boolean = false,
+) {
+    val size: Int get() = entries.size
+
+    /**
+     * What this list *is*, across devices. Its origin if it has one, otherwise
+     * its own id - which is what a list being pushed on by a follower who
+     * adopted it should carry, so a third device recognises it as one list
+     * rather than as two.
+     */
+    val identity: String get() = originId ?: id
+
+    fun withEntryAt(index: Int, transform: (SetlistEntry) -> SetlistEntry): Setlist =
+        copy(entries = entries.mapIndexed { i, e -> if (i == index) transform(e) else e })
+
+    /**
+     * The same list with every entry for [songId] called [title].
+     *
+     * A set list carries the name a song had when it was added, because it has
+     * to say what it is on a device whose library has never seen that chart.
+     * The cost is that renaming the chart afterwards left the running order
+     * still calling it "scan-2024-11-03.pdf" - the one place the old name is
+     * read out loud between songs.
+     *
+     * Returns `this` when nothing would change, so a caller can tell a list that
+     * needs writing back from one that does not.
+     */
+    fun withSongRenamed(songId: String, title: String): Setlist {
+        if (entries.none { it.songId == songId && it.title != title }) return this
+        return copy(
+            entries = entries.map { if (it.songId == songId) it.copy(title = title) else it },
+        )
+    }
+
+    fun moved(from: Int, to: Int): Setlist {
+        if (from !in entries.indices || to !in entries.indices || from == to) return this
+        val list = entries.toMutableList()
+        list.add(to, list.removeAt(from))
+        return copy(entries = list)
+    }
+
+    fun removedAt(index: Int): Setlist =
+        if (index !in entries.indices) this
+        else copy(entries = entries.filterIndexed { i, _ -> i != index })
+}
+
+/**
+ * A set list packaged for another device.
+ *
+ * This is the file that gets shared, and it is plain JSON on purpose. A band
+ * mate on a phone that has never run this app should still be able to open the
+ * attachment and see what the set is; a binary format would buy nothing and cost
+ * that.
+ *
+ * [formatVersion] is checked on import. An older app meeting a newer file needs
+ * to say so plainly rather than silently drop the fields it does not know about,
+ * which for a set list would mean quietly losing somebody's transpositions.
+ */
+@Serializable
+data class SetlistBundle(
+    val formatVersion: Int = FORMAT_VERSION,
+    val setlist: Setlist,
+    val exportedBy: String? = null,
+    val exportedAt: Long = 0L,
+    /** App version that wrote the file, for support rather than for logic. */
+    val producer: String? = null,
+) {
+    companion object {
+        const val FORMAT_VERSION = 1
+
+        /** The extension and MIME type a shared set list uses. */
+        const val EXTENSION = "bcset"
+        const val MIME_TYPE = "application/json"
+    }
+}
+
+/** What happened when a shared set list met this device's library. */
+data class SetlistImport(
+    val setlist: Setlist,
+    val resolved: List<ResolvedEntry>,
+    /** True when this replaced a copy of the same list already on the device. */
+    val replaced: Boolean = false,
+) {
+    val missing: List<ResolvedEntry> get() = resolved.filter { it.localSongId == null }
+    val allPresent: Boolean get() = missing.isEmpty()
+}
+
+data class ResolvedEntry(val entry: SetlistEntry, val localSongId: String?)
+
+object SetlistCodec {
+
+    val json: Json = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    fun encode(bundle: SetlistBundle): String =
+        json.encodeToString(SetlistBundle.serializer(), bundle)
+
+    /**
+     * Reads a shared set list. Returns null rather than throwing on anything
+     * malformed, because this is fed by files from other people's devices and a
+     * crash on a bad attachment is not an acceptable failure mode.
+     */
+    fun decode(text: String): SetlistBundle? = runCatching {
+        json.decodeFromString(SetlistBundle.serializer(), text)
+    }.getOrNull()
+
+    /**
+     * True if this build can be trusted to read the file without losing
+     * information. A newer major format is refused rather than half-read.
+     */
+    fun canRead(bundle: SetlistBundle): Boolean =
+        bundle.formatVersion <= SetlistBundle.FORMAT_VERSION
+
+    /**
+     * Matches every entry in a shared set list against the local library, by
+     * content hash first and title second.
+     */
+    fun resolve(setlist: Setlist, library: LibraryIndex): SetlistImport = SetlistImport(
+        setlist = setlist,
+        resolved = setlist.entries.map { entry ->
+            ResolvedEntry(
+                entry,
+                library.matchAny(
+                    listOfNotNull(entry.contentHash) + entry.partHashes,
+                    entry.title,
+                )?.id,
+            )
+        },
+    )
+
+    /**
+     * Takes a set list from elsewhere and makes it this device's own.
+     *
+     * Three jobs, and the last two are the ones that were missing. Song ids are
+     * rewritten to point at local copies, by content hash and then title, so the
+     * entries resolve here. And the list is matched against what this device has
+     * already adopted, by [Setlist.identity], so that the same running order
+     * arriving a second time *replaces* the copy already here instead of sitting
+     * beside it.
+     *
+     * Replacing rather than merging is deliberate. An incoming push is the
+     * leader saying what the band is playing tonight; if it disagrees with a
+     * local edit, the leader is right, and a set list that quietly kept a
+     * follower's older order would be worse than one that changed under them.
+     *
+     * The exception is the capo, which is not the leader's to send. See the
+     * comment on the entries below.
+     *
+     * [newId] is passed in rather than generated here so the rule stays a pure
+     * function - the same inputs give the same list, which is what makes it
+     * worth testing.
+     */
+    fun adopt(
+        incoming: Setlist,
+        existing: List<Setlist>,
+        library: LibraryIndex,
+        now: Long,
+        newId: () -> String,
+    ): SetlistImport {
+        val resolution = resolve(incoming, library)
+        val identity = incoming.identity
+        val alreadyHere = existing.firstOrNull { it.identity == identity }
+
+        val localised = incoming.copy(
+            id = alreadyHere?.id ?: newId(),
+            originId = identity,
+            entries = resolution.resolved.map { resolved ->
+                val local = resolved.localSongId?.let { library.findById(it) }
+                resolved.entry.copy(
+                    songId = local?.id ?: resolved.entry.songId,
+                    // The key travels and the capo does not. A transposition is
+                    // the band's decision about what everyone plays; a capo is
+                    // one guitarist's fingering of it, and putting the sender's
+                    // capo on everybody's screen hands half a band shapes for an
+                    // instrument they are not holding. So each entry keeps
+                    // whatever this player already chose for that song, and
+                    // nothing when they have chosen nothing.
+                    capo = local?.userCapo ?: 0,
+                )
+            },
+            // Kept from the copy already here, so a list adopted at the start of
+            // a rehearsal does not claim to have been created at the moment of
+            // its third push.
+            createdAt = alreadyHere?.createdAt ?: incoming.createdAt.takeIf { it > 0L } ?: now,
+            updatedAt = now,
+        )
+        return SetlistImport(localised, resolution.resolved, replaced = alreadyHere != null)
+    }
+
+    /**
+     * Builds an entry for a song, carrying every part the library holds of it.
+     *
+     * The title is the *work's*, not the chart's. A set list read out between
+     * songs says "Wonderwall", and an entry built from the bass part would
+     * otherwise have the running order announcing "Wonderwall - Bass".
+     */
+    fun entryFor(
+        song: SongRef,
+        library: LibraryIndex,
+        transposeSemitones: Int = song.userTransposeSemitones,
+        capo: Int = song.userCapo,
+        note: String? = null,
+    ): SetlistEntry {
+        val parts = library.partsOfSong(song.id)
+        return SetlistEntry(
+            songId = song.id,
+            title = library.workOf(song.id)?.title ?: song.workTitle,
+            contentHash = song.contentHash,
+            artist = song.artist,
+            transposeSemitones = transposeSemitones,
+            capo = capo,
+            note = note,
+            // Only worth carrying when there is more than one, and an entry for
+            // an ordinary chart then looks exactly as it always has.
+            partHashes = if (parts.size > 1) parts.mapNotNull { it.contentHash } else emptyList(),
+        )
+    }
+
+    /** Builds the shareable form of a set list held on this device. */
+    fun bundle(setlist: Setlist, exportedBy: String?, producer: String?, now: Long): SetlistBundle =
+        SetlistBundle(
+            setlist = setlist,
+            exportedBy = exportedBy,
+            exportedAt = now,
+            producer = producer,
+        )
+
+    /** A filesystem-safe name for the exported file. */
+    fun fileName(setlist: Setlist): String {
+        // Disallowed characters become a word break rather than vanishing, so
+        // "AC/DC night" exports as AC-DC-night and not ACDC-night.
+        val base = setlist.name
+            .replace(Regex("[^A-Za-z0-9 _-]"), " ")
+            .trim()
+            .replace(Regex("[\\s_-]+"), "-")
+            .ifEmpty { "setlist" }
+        return "$base.${SetlistBundle.EXTENSION}"
+    }
+}

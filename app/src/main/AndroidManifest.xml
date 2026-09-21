@@ -3,7 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Band-leader mode runs entirely on the local network: mDNS to find the
+      ChartSync, the band-leader mode, runs entirely on the local network: mDNS to find the
       session, a TCP socket to follow it. No traffic leaves the room, which is
       why there is no INTERNET-only fallback and no server anywhere.
     -->
@@ -29,7 +29,7 @@
 
       Nothing is ever downloaded without somebody pressing a button, and the
       install itself is Android's own, with its own confirmation. See
-      org.droidmusic.app.update.Updater.
+      org.bandcharts.app.update.Updater.
     -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -52,7 +52,7 @@
     </queries>
 
     <application
-        android:name=".DroidMusicApp"
+        android:name=".BandChartsApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -60,14 +60,14 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DroidMusic"
+        android:theme="@style/Theme.BandCharts"
         tools:targetApi="35">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.DroidMusic"
+            android:theme="@style/Theme.BandCharts"
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="false"
@@ -86,7 +86,7 @@
               An intent filter with a VIEW action and no scheme reads as a web
               link with no URL - lint says so, and it is right, because without
               one this filter claims every VIEW of those MIME types including
-              http ones the app cannot open. DroidMusic handles exactly two:
+              http ones the app cannot open. BandCharts handles exactly two:
               content:// from a document provider, and file:// from local
               storage.
 
@@ -147,7 +147,7 @@
 
               This is how a chart written on a laptop or in another editor
               usually crosses over: not through a file manager, but by being
-              shared. Accepting only set lists here meant DroidMusic did not
+              shared. Accepting only set lists here meant BandCharts did not
               appear in that share sheet at all.
             -->
             <intent-filter>

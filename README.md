@@ -1,4 +1,4 @@
-# DroidMusic
+# BandCharts
 
 A sheet music, chord chart and tablature viewer for Android, built for reading
 from on a stand rather than for browsing on a sofa.
@@ -33,7 +33,7 @@ Lists**, **Sessions** and **Settings**, and each row says what is behind it: how
 many charts, which running order is next, whether a session is live. Making one
 of the four the front door — as an earlier version did with the library — makes
 the other three a detour, which is the wrong shape the moment somebody opens
-DroidMusic to join a session rather than to find a chart. Which is most
+BandCharts to join a session rather than to find a chart. Which is most
 rehearsals.
 
 **One action set, two ways to reach it.** In the library and the set lists,
@@ -86,7 +86,7 @@ Opens `.pdf`, images (`.png .jpg .webp .heic` and friends), Word documents
 (`.docx`), and chord charts in `.cho .chopro .pro .crd .txt .tab .md`.
 
 Charts also arrive from outside: tap one in a file manager, or share it across
-from another editor, and DroidMusic is offered. ChordPro has no registered file
+from another editor, and BandCharts is offered. ChordPro has no registered file
 type of its own, so a `.cho` looks to Android like an anonymous blob — the app
 accepts those and works out what they are by reading them, rather than telling
 you the file is not supported. A chart picked by hand whose extension is on
@@ -109,7 +109,7 @@ Hold a chart in the list and it offers what can be done with it.
 | **Add to a set list** | Files it into tonight's running order without leaving the library. |
 | **Transpose** | Sets the key the song is played in, for good. |
 | **Edit the chart** | Opens it in the editor. Text charts only — a PDF has nothing inside it to edit. |
-| **Rename** | Changes what DroidMusic calls it. |
+| **Rename** | Changes what BandCharts calls it. |
 | **Remove from library** | Stops listing it. The file is not touched. |
 | **Delete file** | Deletes it, and only appears when that is actually possible. |
 
@@ -150,7 +150,7 @@ the next folder scan found the file and put it straight back. There is an
 **Undo** on the banner, and the folder list keeps a **Put back** for anything
 already dismissed.
 
-**Deleting the file is offered only where it can be done.** DroidMusic asks
+**Deleting the file is offered only where it can be done.** BandCharts asks
 Android for *read* access to your folders and nothing more, so it holds no
 permission to delete anything in them - which is the right default for an app
 pointed at somebody's entire sheet music collection, and it means a chart in a
@@ -161,7 +161,7 @@ than present and failing.
 
 ### Photographing music
 
-**Point the camera at a page and it becomes a PDF in the library.** DroidMusic
+**Point the camera at a page and it becomes a PDF in the library.** BandCharts
 finds the edges of the page in the photograph, straightens out the angle the
 phone was held at, and files the result. Photograph several pages and they become
 one multi-page PDF — one row in the library, one thing to put in a set list, one
@@ -194,8 +194,8 @@ uninvited.
 
 ### Importing a chart from a link
 
-**Share an Ultimate Guitar page into DroidMusic and it becomes a ChordPro file in
-the library.** Find the chart in the phone's browser, tap share, pick DroidMusic:
+**Share an Ultimate Guitar page into BandCharts and it becomes a ChordPro file in
+the library.** Find the chart in the phone's browser, tap share, pick BandCharts:
 the page is fetched, converted, saved, and opened. From then on it is an ordinary
 chart — it transposes, it takes a capo, it goes into a set list, and it is
 matched to other players' copies by content hash like any other.
@@ -357,7 +357,7 @@ reader.
 
 They travel two ways, and both matter:
 
-- **As a file** (`.dmset`, plain JSON) through the share sheet — email, a
+- **As a file** (`.bcset`, plain JSON) through the share sheet — email, a
   messaging app, a shared folder. Works when the band are not in the same room,
   and works with any means of sending a file.
 - **Pushed over a live session**, instantly, to everyone who has joined.
@@ -493,7 +493,7 @@ for good means configuring a signing key; see
 [Signing](#signing-and-why-it-is-not-optional-any-more) and
 [docs/DESIGN.md](docs/DESIGN.md).
 
-### Band-leader mode
+### ChartSync — keeping the band on one page
 
 One device starts a session; the rest tap its name. Sessions find each other over
 mDNS on the local network, so nobody types an IP address ninety seconds before
@@ -566,7 +566,7 @@ named rather than silently skipped.
 **It only goes one way, and only when asked.** The leader answers requests; it
 never pushes a file at anybody and never reads anybody's library. A follower asks
 only for songs in the set list it was just sent, checks what arrives against what
-was described, and files it in DroidMusic's own storage — never in your folders.
+was described, and files it in BandCharts's own storage — never in your folders.
 
 **A word about the network.** Band sessions are unauthenticated by design: anyone
 on the same wifi who speaks the protocol can join one. That was a fair trade when
@@ -714,7 +714,7 @@ Android only lets an app be replaced by a package signed with the same key, so
 each build is an unrelated app as far as the installer is concerned, and
 installing one over another fails with "conflicts with an existing package".
 
-The builds still install and run perfectly well on a device with no DroidMusic on
+The builds still install and run perfectly well on a device with no BandCharts on
 it; it is only replacement that is impossible. Each release prints its signing
 certificate fingerprint in its own notes, so whether two builds can update one
 another is something you can check by looking.
@@ -722,10 +722,10 @@ another is something you can check by looking.
 To fix it permanently:
 
 ```sh
-keytool -genkeypair -v -keystore droidmusic.jks -alias droidmusic \
+keytool -genkeypair -v -keystore bandcharts.jks -alias bandcharts \
   -keyalg RSA -keysize 4096 -validity 10000
 
-base64 -w0 droidmusic.jks       # the value for ANDROID_KEYSTORE_BASE64
+base64 -w0 bandcharts.jks       # the value for ANDROID_KEYSTORE_BASE64
 ```
 
 Keep that keystore. Losing it means never being able to update an installed copy
@@ -796,5 +796,5 @@ Treat v0.1.1 as something to try at a rehearsal before trusting at a gig.
 - [docs/DESIGN.md](docs/DESIGN.md) — why each choice was made, including the
   ones that were nearly made differently.
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — the band session wire protocol.
-- [docs/FORMATS.md](docs/FORMATS.md) — chart formats read, and the `.dmset` set
+- [docs/FORMATS.md](docs/FORMATS.md) — chart formats read, and the `.bcset` set
   list format.
