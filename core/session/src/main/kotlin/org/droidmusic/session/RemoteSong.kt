@@ -2,6 +2,7 @@ package org.droidmusic.session
 
 import org.droidmusic.library.LibraryIndex
 import org.droidmusic.library.SongRef
+import org.droidmusic.music.PartKind
 
 /**
  * Finding this device's copy of the chart the leader is on.
@@ -23,7 +24,24 @@ fun LibraryIndex.songFor(position: Position): SongRef? {
     if (byId != null) return byId
 
     val title = position.songTitle ?: return null
-    return match(position.contentHash, title)
+    return matchAny(listOfNotNull(position.contentHash) + position.partHashes, title)
+}
+/**
+ * The chart this device should actually put on the glass.
+ *
+ * [songFor] finds the *song* the leader is on; this picks the part of it that
+ * belongs to whoever is holding this phone. The two are separate because they
+ * answer different questions, and one caller genuinely wants each: the leader's
+ * own screen follows the leader's own choice of chart, and everybody else's
+ * follows their own instrument.
+ *
+ * Falls back to the chart [songFor] found, so a song with no parts - which is
+ * every song in a library that has grouped nothing - resolves exactly as it
+ * always did.
+ */
+fun LibraryIndex.partFor(position: Position, preference: List<PartKind>): SongRef? {
+    val song = songFor(position) ?: return null
+    return preferredPart(song.id, preference) ?: song
 }
 
 /**
@@ -45,6 +63,13 @@ fun LibraryIndex.songFor(position: Position): SongRef? {
  *
  * So the capo in a [Position] is advisory: it says what the leader is fingering,
  * and every device keeps its own.
+ *
+ * **The part is one player's as well, and more so.** Which of a song's charts
+ * is on the glass - the chord chart, the bass part, the drum chart - is a fact
+ * about who is holding the phone, and a leader who pushed theirs would put a
+ * drum chart in front of the bass player. So a [Position] names every part of
+ * the song, by hash, and says nothing at all about which of them to open; see
+ * [partFor].
  */
 data class Arrangement(val transposeSemitones: Int, val capo: Int)
 

@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.droidmusic.library.FileKind
 import org.droidmusic.library.Setlist
+import org.droidmusic.music.Part
 
 /**
  * The wire protocol between a band leader and the players following them.
@@ -82,6 +83,25 @@ data class Position(
     val page: Int,
     val transposeSemitones: Int = 0,
     val capo: Int = 0,
+    /**
+     * Every part of the song the leader is on, by content hash.
+     *
+     * Sent so that a follower can find *their own* part rather than the
+     * leader's. [contentHash] names the chart on the leader's stand - the chord
+     * chart, usually - and the drummer wants the drum part; without this the
+     * only thing to match on is the leader's bytes or the title, and the first
+     * finds the wrong chart while the second cannot tell two parts apart at all.
+     *
+     * Empty for a song with one chart, which is every song in a library that has
+     * not grouped anything - so an older build, which decodes this as absent,
+     * behaves exactly as it did. That is also why [PROTOCOL_VERSION] is not
+     * raised for it; see the note on [Welcome.filePort].
+     *
+     * Deliberately hashes and not a work id. A work id is generated on the
+     * device that grouped the parts and means nothing anywhere else, for the
+     * same reason a song id does not travel.
+     */
+    val partHashes: List<String> = emptyList(),
 ) : Message
 
 /** The leader pushing the whole set list, so followers can load it. */
@@ -196,6 +216,14 @@ data class ChartOffer(
      */
     val artist: String? = null,
     val keyText: String? = null,
+    /**
+     * Which player's chart this is, when it is one part of several.
+     *
+     * Absent for an ordinary chart. It is here so the aggregated library can say
+     * "Bo has the bass part" rather than listing three rows all called
+     * Wonderwall and leaving the band to tap each one to find out.
+     */
+    val part: Part? = null,
 )
 
 /**

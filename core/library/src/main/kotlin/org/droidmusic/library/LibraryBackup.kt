@@ -30,7 +30,24 @@ data class LibraryBackupManifest(
     val producer: String? = null,
 ) {
     companion object {
-        const val FORMAT_VERSION = 1
+        /**
+         * Raised to 2 when a song gained parts.
+         *
+         * A backup written now carries [LibraryIndex.works] and the grouping on
+         * each [SongRef]. An older build decodes with unknown keys ignored, so
+         * it would restore every chart perfectly and every *grouping* not at
+         * all - a library that comes back with the band's parts silently
+         * scattered back into separate rows, months later, with nothing said.
+         * That is the partial restore this check exists to refuse.
+         *
+         * The set list format deliberately did *not* move for the same feature,
+         * and the difference is worth stating: a `.dmset` is handed between
+         * phones at a gig, where a refusal breaks a band running two versions,
+         * and an older build reading one loses nothing it ever had. A backup is
+         * archival and read once, long afterwards, by whatever is installed
+         * then - so here the refusal is the kind answer.
+         */
+        const val FORMAT_VERSION = 2
 
         /** The extension and MIME type a shared backup uses. */
         const val EXTENSION = "dmlib"

@@ -1399,7 +1399,175 @@ Two rules came out of it, and both are cheap:
 
 ---
 
-## 18. Things deliberately not built
+## 18. Multiple parts for one song
+
+A band does not read one chart. The bass player has a bass part, the drummer
+has a drum chart, and the guitarist has the chords-and-words page everybody else
+calls the song. Until now the library held those as four unrelated files with
+similar names, which meant four rows to scroll past, four things to add to a set
+list, and a leader who could put exactly one of them on everybody's screen.
+
+So a song is now a **work** with **parts**, and the whole design rests on one
+sentence that was already written down for something else.
+
+### The rule this is built on was already here, for the capo
+
+Section 8 draws a line through band-leader mode: *the key is the band's and the
+capo is one player's*. A transposition is the singer saying tonight this one is
+in B flat, so it travels to every device; a capo is how one guitarist fingers
+that key, means nothing to the keyboard player, and never leaves the phone it
+was chosen on.
+
+**A part is the same kind of thing as a capo, only more so.** Which of a song's
+five charts is on the glass is a fact about who is holding the phone. A leader
+who pushed theirs would put a drum chart in front of the bass player.
+
+So the wire is unchanged in shape: a `Position` says *which song*, *which page*
+and *what key* — all of which are the band's — and says nothing whatsoever about
+which part to open. Each device answers that for itself, from a preference the
+player set once. `Arrangement` in the session core now documents both halves of
+the rule, and both are covered by tests that need no device.
+
+### A layer above the chart, not a rewrite of it
+
+`SongRef` — one chart, one file — is named in 24 files and touched at around 190
+call sites. The obvious model, where a song holds a list of parts, rewrites
+every one of them and every library on every phone.
+
+What was done instead is additive. `Work` is a new record holding a song's
+identity, `SongRef` gained a nullable `workId`, and `LibraryIndex` gained a list
+of works that defaults to empty. The consequences are worth spelling out,
+because they are the whole argument for the shape:
+
+- **A chart with no work is a work of one part.** Every library in the field
+  already looks exactly like this, so nothing needs migrating and no code path
+  needs an "if this song has parts" branch. `partsOfSong` on a plain chart
+  returns that chart.
+- **Nothing on disk changed meaning.** Every index, backup and `.dmset` ever
+  written still decodes, because every new field has a default.
+- **Sharing cost nothing.** Charts are already fetched by content hash, and each
+  part keeps its own, so a five-part song is five charts the existing transfer
+  path already knew how to move — resume included.
+
+### Membership is written down once
+
+There is no list of part ids on a `Work`. A part knows its work, through
+`SongRef.workId`, and that is the only place it is recorded.
+
+Holding it at both ends reads better and goes wrong quietly. A rescan that drops
+a file, a part moved between works, a restore that adds one — each leaves a work
+naming a part that is not there, or a part claiming a work that has never heard
+of it. One end can be stale. Two ends can disagree, and disagreeing is worse,
+because there is no longer an answer to which of them is the library.
+
+### Grouping is deliberately timid
+
+Charts are grouped automatically, from what they declare and from what their
+file names say — `Wonderwall - Bass.pdf` beside `Wonderwall - Drums.pdf` is how
+a band that has never seen this app already organises parts, and reading it is
+the difference between a feature somebody has to apply four hundred times by
+hand and one that is simply already true of their folder.
+
+A group forms only when **two or more charts share a title and carry two or more
+different detected parts**. Both halves are load bearing:
+
+- *Two different parts*, not two charts, because two same-titled charts with no
+  parts between them are the case section 17 is explicit about: the bass
+  player's transcription and the guitarist's, which differ in a repeat and must
+  stay two rows. Collapsing those is precisely the surprise the Backstage check
+  exists to prevent.
+- *Detected* parts, meaning declared in the chart or written in its file name. A
+  part invented here would be grouping by title alone wearing a hat.
+
+Once a group has qualified, same-titled charts carrying no part join it as the
+lead sheet, because `Wonderwall.pdf` beside `Wonderwall - Bass.pdf` is the
+common shape of a real folder and the chart everyone reads should not be the one
+left outside the song it belongs to. Two songs that share a title are kept apart
+by the artist: if the charts disagree about who wrote it, the group is abandoned
+rather than guessed at.
+
+The asymmetry is on purpose. A wrong part is noticed instantly — it is the wrong
+chart, on the stand, in front of somebody. A wrong *grouping* hides one chart
+behind another and is noticed at the gig where a song is not where it was left.
+
+### A part is an open set, like a section
+
+`PartKind` names the lead sheet, vocals, electric, acoustic, bass, drums and
+keys, and then `OTHER`, which carries whatever the chart called it. It is the
+same shape as `SectionKind` and for the same reason: **it is not a list of the
+parts that exist, it is a list of the ones the app does something about.** A
+band with a fiddle, a pedal steel or a second tenor sax needs no code change,
+because the name that matters to them is the one on their own chart.
+
+A label can sit alongside a recognised kind, so "Electric 1" and "Electric 2"
+are both electric and both still match a guitarist who said they play one.
+
+One reading is a guess, and it is stated as one: bare **"Lead" is taken as the
+lead sheet** and "Lead Guitar" as an electric. Both readings are common — a
+folder holding "Lead" and "Rhythm" means guitars, one holding "Lead" and "Bass"
+means the chord chart — and no rule gets both right. The chord chart wins
+because it is what every other player falls back to, so being wrong shows
+somebody a chart they can still read.
+
+Reading a part off a file name never produces `OTHER`. That restriction is what
+makes the heuristic safe: without it every ordinary chart in the library would
+acquire a part named after its own title.
+
+### Falling back is better than being correct
+
+A bass player whose band has never transcribed a bass part gets the chord chart,
+and failing that, any part at all. "Your part is not here" is the literal answer
+and the useless one; a drum chart at least shows the arrangement. The only case
+with genuinely no answer is a work with no parts, which cannot happen.
+
+### Every part's hash travels, and no work id does
+
+A set list entry and a `Position` both now carry the content hash of *every*
+part of the song, not only of the chart the sender is reading. Without that, a
+leader on the chord chart sends one hash, the drummer holds only the drum chart,
+nothing matches, and the screen stays blank for that song — while the title, the
+only other thing to match on, is exactly what cannot tell two parts apart.
+
+It is hashes and not a work id because a work id is generated on the device that
+did the grouping and means nothing anywhere else — the same reason a song id has
+never travelled.
+
+`ChartShare.wanted` asks for a missing part by exact hash and by nothing else,
+for the same reason: a device holding the chord chart is not holding the bass
+part, and the title fallback that settles an ordinary entry would report every
+missing part as already present.
+
+### One format version moved and the other did not
+
+Both decisions come from the same principle and land in opposite places, which
+is why they are written down.
+
+The **set list** format did *not* move. An older build reading a newer `.dmset`
+drops the part hashes and falls back to the content hash and the title — which
+is how it already resolved every entry, so it loses nothing it ever had.
+Refusing the file would break a band whose phones are on two versions, at the
+gig, over a field that costs them nothing. That is the `filePort` precedent from
+section 8, and the protocol version does not move here either.
+
+The **backup** format did move, to 2. A backup carries the works and the
+grouping on each chart, and an older build ignores unknown keys — so it would
+restore every chart perfectly and the band's grouping not at all, months later,
+silently. That is exactly the partial restore its version check exists to
+refuse. A `.dmset` is handed between phones at a gig; a backup is read once,
+long afterwards, by whatever happens to be installed. The refusal is the kind
+answer in one case and the cruel one in the other.
+
+### What is not built yet
+
+This is the core: the model, the grouping, the resolution rules and the wire
+fields, all of it plain Kotlin covered by tests that run without a device. The
+app layer — a library list showing one row per song, a part switcher in the
+viewer, and the setting where a player says which instruments they play — is not
+here yet, and nothing above is reachable from the screen until it is.
+
+---
+
+## 19. Things deliberately not built
 
 - **Per-vendor cloud SDKs.** Section 4.
 - **Transposing PDFs.** A PDF is a picture of a page. The control is absent

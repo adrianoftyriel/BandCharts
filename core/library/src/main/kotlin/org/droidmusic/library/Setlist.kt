@@ -26,6 +26,28 @@ data class SetlistEntry(
     val targetKeyText: String? = null,
     /** Shown to the band, not the audience: "segue into next", "capo 3, watch the tag". */
     val note: String? = null,
+    /**
+     * The content hash of every part of this song, when it has more than one.
+     *
+     * A set list entry has always carried the hash of *a* chart, and with parts
+     * that is no longer enough: the leader built the list from the chord chart,
+     * and the drummer wants the drum part. One hash finds the leader's chart or
+     * nothing, and "nothing" is a player whose screen stays blank for that song.
+     *
+     * So every part travels, and each device matches whichever of them it
+     * holds. Empty for a song with a single chart, which is every entry in every
+     * set list written before this existed - and that is what lets an older
+     * `.dmset` still resolve exactly as it always did.
+     *
+     * The format version is deliberately *not* raised for this. An older build
+     * reading a newer list drops this field and falls back to [contentHash] and
+     * [title], which is how it already resolved every entry, so it loses nothing
+     * it ever had - unlike a dropped transposition, which is what that check
+     * exists to prevent. Refusing the file outright would break a band whose
+     * phones are on two versions, at the gig, over a field that costs them
+     * nothing.
+     */
+    val partHashes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -179,7 +201,13 @@ object SetlistCodec {
     fun resolve(setlist: Setlist, library: LibraryIndex): SetlistImport = SetlistImport(
         setlist = setlist,
         resolved = setlist.entries.map { entry ->
-            ResolvedEntry(entry, library.match(entry.contentHash, entry.title)?.id)
+            ResolvedEntry(
+                entry,
+                library.matchAny(
+                    listOfNotNull(entry.contentHash) + entry.partHashes,
+                    entry.title,
+                )?.id,
+            )
         },
     )
 
@@ -240,6 +268,35 @@ object SetlistCodec {
             updatedAt = now,
         )
         return SetlistImport(localised, resolution.resolved, replaced = alreadyHere != null)
+    }
+
+    /**
+     * Builds an entry for a song, carrying every part the library holds of it.
+     *
+     * The title is the *work's*, not the chart's. A set list read out between
+     * songs says "Wonderwall", and an entry built from the bass part would
+     * otherwise have the running order announcing "Wonderwall - Bass".
+     */
+    fun entryFor(
+        song: SongRef,
+        library: LibraryIndex,
+        transposeSemitones: Int = song.userTransposeSemitones,
+        capo: Int = song.userCapo,
+        note: String? = null,
+    ): SetlistEntry {
+        val parts = library.partsOfSong(song.id)
+        return SetlistEntry(
+            songId = song.id,
+            title = library.workOf(song.id)?.title ?: song.workTitle,
+            contentHash = song.contentHash,
+            artist = song.artist,
+            transposeSemitones = transposeSemitones,
+            capo = capo,
+            note = note,
+            // Only worth carrying when there is more than one, and an entry for
+            // an ordinary chart then looks exactly as it always has.
+            partHashes = if (parts.size > 1) parts.mapNotNull { it.contentHash } else emptyList(),
+        )
     }
 
     /** Builds the shareable form of a set list held on this device. */

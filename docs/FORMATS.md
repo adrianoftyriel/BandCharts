@@ -220,6 +220,53 @@ time above itself would be a bug wearing a feature's clothes.
 
 ---
 
+### Which part a chart is
+
+A song may be several charts — the chords-and-words page, a bass part, a drum
+chart — and a chart can say which of them it is:
+
+```
+{title: Wonderwall}
+{artist: Oasis}
+{x_part: Bass}
+```
+
+`{part:}` and `{x_part:}` are read first and mean exactly this. `{instrument:}`
+is also accepted, and is believed last: ChordPro uses it for the *configuration*
+of an instrument rather than for naming a chart's part, so a file may carry one
+meaning something else entirely.
+
+| Declared | Read as |
+|---|---|
+| `Bass`, `Bass Guitar`, `BGtr` | Bass |
+| `Drums`, `Perc`, `Kit` | Drums |
+| `Keys`, `Piano`, `Pno`, `Organ`, `Rhodes` | Keys |
+| `Electric`, `EGtr`, `Lead Guitar` | Electric |
+| `Acoustic`, `AGtr` | Acoustic |
+| `Vocals`, `Vox`, `Melody` | Vocals |
+| `Lead`, `Lead Sheet`, `Chords` | The lead sheet |
+| `Electric 2`, `Bari Sax`, anything else | Kept under that name |
+
+A part name that is not on the list is not an error. It is kept as written, and
+a band with a pedal steel loses nothing by this app never having heard of one.
+
+**A file name says the same thing.** `Wonderwall - Bass.pdf`,
+`Wonderwall (Drums).pdf` and `Wonderwall_keys.cho` are all read the same way,
+which matters because a PDF cannot declare anything and a scan is how most parts
+arrive. The separator has to be a dash, an underscore or a bracket; a plain
+space is not one, or "Amazing Grace" would be filed as somebody's instrument.
+
+**A file name only ever yields a part this app recognises.** An unrecognised
+trailing word is ignored rather than becoming a part named after itself —
+otherwise every ordinary chart in the library would acquire one, named after its
+own title.
+
+Charts that name their parts are grouped into one song automatically. What that
+does and, more importantly, what it refuses to do is in
+[docs/DESIGN.md](DESIGN.md) §18.
+
+---
+
 ## Word documents
 
 A `.docx` is a zip with an XML file in it. DroidMusic unzips it, takes the

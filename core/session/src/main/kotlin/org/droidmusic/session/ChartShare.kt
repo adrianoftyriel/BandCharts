@@ -58,12 +58,27 @@ object ChartShare {
         val seen = mutableSetOf<String>()
         val out = mutableListOf<ChartWant>()
         for (entry in setlist.entries) {
-            if (library.match(entry.contentHash, entry.title) != null) continue
-            // One want per chart, however many times the set list names it - an
-            // encore is the same file.
-            val key = entry.contentHash ?: entry.title.lowercase()
-            if (!seen.add(key)) continue
-            out += ChartWant(contentHash = entry.contentHash, title = entry.title)
+            if (library.match(entry.contentHash, entry.title) == null) {
+                // One want per chart, however many times the set list names it -
+                // an encore is the same file.
+                val key = entry.contentHash ?: entry.title.lowercase()
+                if (seen.add(key)) {
+                    out += ChartWant(contentHash = entry.contentHash, title = entry.title)
+                }
+            }
+
+            // A part is asked for by its exact hash and by nothing else. A
+            // device holding the chord chart is not holding the bass part, and
+            // the title the two share is exactly what cannot tell them apart -
+            // so the title fallback that settles the entry above would report
+            // every missing part as already here, and the drummer would spend
+            // the gig on somebody else's chart.
+            for (hash in entry.partHashes) {
+                if (library.visible.any { it.contentHash == hash }) continue
+                if (seen.add(hash)) {
+                    out += ChartWant(contentHash = hash, title = entry.title)
+                }
+            }
         }
         return out
     }
@@ -90,6 +105,7 @@ object ChartShare {
                 sizeBytes = song.sizeBytes,
                 artist = song.artist,
                 keyText = song.soundingKey?.toString(),
+                part = song.bestPart,
             )
         }
         return out
@@ -120,6 +136,7 @@ object ChartShare {
                     sizeBytes = song.sizeBytes,
                     artist = song.artist,
                     keyText = song.soundingKey?.toString(),
+                    part = song.bestPart,
                 )
             }
 

@@ -2,6 +2,8 @@ package org.droidmusic.library
 
 import kotlinx.serialization.Serializable
 import org.droidmusic.music.Key
+import org.droidmusic.music.Part
+import org.droidmusic.music.PartKind
 
 /**
  * Where a song's file physically lives.
@@ -136,6 +138,38 @@ data class SongRef(
      * transpose somebody's chart by five frets they never asked for.
      */
     val userCapo: Int = 0,
+
+    /**
+     * The work this chart is one part of, or null when it stands alone.
+     *
+     * Null is not a degraded state. Every chart in every library that predates
+     * parts has a null here and is a work of one part, which is what lets this
+     * whole feature arrive without migrating anybody's library - see [Work].
+     *
+     * Preserved across a rescan, because grouping is a decision rather than
+     * something read off the disk, and a rescan that quietly ungrouped a band's
+     * parts would look exactly like a successful rescan.
+     */
+    val workId: String? = null,
+
+    /**
+     * Which player's chart this is, as detected from the file.
+     *
+     * Detected, so it is worked out again on every rescan - which is the point.
+     * A chart whose `{x_part:}` is corrected, or a file renamed from
+     * `Wonderwall.pdf` to `Wonderwall - Bass.pdf`, should say something
+     * different afterwards. This is the same split as [title] against
+     * [userTitle], and it exists for the same reason.
+     */
+    val part: Part? = null,
+
+    /**
+     * The part the user said this is, overriding whatever was detected.
+     *
+     * Set by hand when the detection is wrong or when there was nothing to
+     * detect, and preserved across a rescan for the same reason [userTitle] is.
+     */
+    val userPart: Part? = null,
 ) {
     val key: Key? get() = (userKeyText ?: keyText)?.let { Key.parse(it) }
 
@@ -149,6 +183,34 @@ data class SongRef(
 
     /** Whether the user has asked for this chart in anything but its written key. */
     val isTransposed: Boolean get() = userTransposeSemitones != 0 || userCapo != 0
+
+    /** The part this chart is: what the user said, else what was detected. */
+    val bestPart: Part? get() = userPart ?: part
+
+    /**
+     * The part this chart counts as when choosing between parts.
+     *
+     * A chart with no part at all is a lead sheet rather than an unknown, which
+     * is what makes a library that has never heard of parts behave exactly as
+     * it always did: every chart in it is the part everybody reads.
+     */
+    val partKind: PartKind get() = bestPart?.kind ?: PartKind.LEAD_SHEET
+
+    /**
+     * What the *song* is called, as opposed to what this chart is called.
+     *
+     * The two differ exactly when the part is written into the file name:
+     * `Wonderwall - Bass.pdf` is a chart called "Wonderwall - Bass" and a song
+     * called "Wonderwall". Grouping needs the second, because the whole point
+     * is that it is the same for every part of the song.
+     *
+     * A declared `{title:}` is believed ahead of the file name, since a chart
+     * that says what song it is has already answered this.
+     */
+    val workTitle: String get() = userTitle?.takeIf { it.isNotBlank() }
+        ?: title?.takeIf { it.isNotBlank() }
+        ?: Part.inFileName(displayName)?.title
+        ?: displayName.substringBeforeLast('.')
 
     /**
      * What to call this chart: the user's name for it, then the one the file
@@ -267,6 +329,11 @@ data class SongRef(
 data class LibraryIndex(
     val sources: List<SourceRef> = emptyList(),
     val songs: List<SongRef> = emptyList(),
+    /**
+     * The songs whose parts are grouped. Empty in every library that has not
+     * grouped anything, which decodes correctly from every index ever written.
+     */
+    val works: List<Work> = emptyList(),
     val updatedAt: Long = 0L,
 ) {
     fun songsFrom(sourceId: String): List<SongRef> = songs.filter { it.sourceId == sourceId }
@@ -317,12 +384,73 @@ data class LibraryIndex(
                 userCapo = old.userCapo,
                 favourite = old.favourite,
                 tags = old.tags,
+                workId = old.workId,
+                userPart = old.userPart,
             )
         }
         return copy(
             songs = songs.filterNot { it.sourceId == sourceId } + merged,
             updatedAt = now,
         )
+    }
+
+    /** The work a chart belongs to, or null when it stands on its own. */
+    fun workOf(songId: String): Work? {
+        val workId = findById(songId)?.workId ?: return null
+        return works.firstOrNull { it.id == workId }
+    }
+
+    /** Every visible part of one work, in the order they should be offered. */
+    fun partsOfWork(workId: String): List<SongRef> =
+        Parts.ordered(visible.filter { it.workId == workId })
+
+    /**
+     * Every part of the song this chart belongs to, including this one.
+     *
+     * A chart in no work is its own only part, so a caller never has to ask
+     * whether parts are involved before asking what they are. That is what
+     * keeps the viewer and the session layer free of "if this song has parts"
+     * branching, which is where this kind of feature usually rots.
+     */
+    fun partsOfSong(songId: String): List<SongRef> {
+        val song = findById(songId) ?: return emptyList()
+        val workId = song.workId ?: return listOf(song)
+        return partsOfWork(workId).ifEmpty { listOf(song) }
+    }
+
+    /** The part of this song that a player with these instruments should see. */
+    fun preferredPart(songId: String, preference: List<PartKind>): SongRef? =
+        Parts.preferred(partsOfSong(songId), preference)
+
+    /**
+     * One row per song rather than one per chart, for a library list.
+     *
+     * A work collapses to whichever part this player would open, so a band that
+     * has five charts of Wonderwall sees Wonderwall once - and the drummer and
+     * the bass player each see their own when they tap it. Charts in no work
+     * are passed through untouched, which is every chart in a library that has
+     * never grouped anything.
+     */
+    fun representatives(preference: List<PartKind>): List<SongRef> =
+        visible.groupBy { it.workId }.flatMap { (workId, parts) ->
+            if (workId == null) parts else listOfNotNull(Parts.preferred(parts, preference))
+        }
+
+    /**
+     * Finds this device's copy of a song that another device described by all
+     * of its parts.
+     *
+     * A set list entry and a leader's position both carry every part's hash
+     * rather than only the one the sender happens to be reading, because the
+     * sender is on the drum chart and the receiver wants the bass part. Matching
+     * on the sender's single hash would find the drum chart or nothing, and
+     * "nothing" is a follower whose screen stays blank for that song.
+     */
+    fun matchAny(hashes: List<String>, title: String): SongRef? {
+        for (hash in hashes) {
+            visible.firstOrNull { it.contentHash == hash }?.let { return it }
+        }
+        return match(null, title)
     }
 
     /**
