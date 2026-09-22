@@ -1,8 +1,10 @@
 package org.bandcharts.app.ui.chartserve
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,13 +15,20 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import java.text.DateFormat
+import java.util.Date
+import kotlinx.coroutines.delay
 import org.bandcharts.app.chartserve.ChartServeController
+import org.bandcharts.app.chartserve.IssuePhase
 import org.bandcharts.app.chartserve.PairPhase
 import org.bandcharts.app.data.AppSettings
 import org.bandcharts.app.ui.common.Header
@@ -27,13 +36,19 @@ import org.bandcharts.app.ui.common.SectionLabel
 import org.bandcharts.chartserve.PairingCode
 
 /**
- * Pairing this device with the band's ChartServe.
+ * Pairing this device with the band's ChartServe - and, once it is paired
+ * with publish rights, pairing other phones from it.
  *
- * There is no field for the admin token here, on purpose - see
- * `docs/API.md` in ChartServe. That token belongs to whoever runs the server,
- * lives on the machine that mints pairing codes, and is never typed into a
- * phone. What is typed in here is the short code that token was used to
- * generate, which is good for ten minutes and works once.
+ * There is no field for an admin credential here, on purpose - see
+ * `docs/API.md` in ChartServe. Codes are made by whoever runs the server, in
+ * its admin portal, and never by typing anything powerful into a phone. What
+ * is typed in here is the short code, which is good for ten minutes and works
+ * once.
+ *
+ * A phone that can publish can make a code too, for the new dep at rehearsal
+ * who would otherwise have to find whoever runs the server. That code only
+ * ever pairs a phone that reads: the server keeps publishing codes for an
+ * admin.
  */
 @Composable
 fun ChartServeScreen(
@@ -68,15 +83,21 @@ fun ChartServeScreen(
                     modifier = Modifier.padding(top = 2.dp),
                 )
                 Text(
-                    "To stop, unpair here and, if you want it gone from the server too, revoke " +
-                        "it from there as well - unpairing here only forgets the token on this " +
-                        "phone.",
+                    "To stop, unpair here. Unpairing only forgets the token on this phone - to " +
+                        "remove it from the server as well, revoke it under Phones in the " +
+                        "server's admin portal.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
                 )
+
+                if (settings.chartServeCanPublish) {
+                    PairAnotherPhone(controller, settings)
+                }
+
                 OutlinedButton(
                     onClick = {
+                        controller.clearIssued()
                         onChange {
                             it.copy(
                                 chartServeUrl = "",
@@ -91,7 +112,8 @@ fun ChartServeScreen(
                 SectionLabel("Server")
                 Text(
                     "The band's own ChartServe holds the shared chart library between gigs. Ask " +
-                        "whoever runs it for its address and a pairing code.",
+                        "whoever runs it, or anyone whose phone can publish to it, for its " +
+                        "address and a pairing code.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -157,4 +179,90 @@ fun ChartServeScreen(
             }
         }
     }
+}
+
+/** Making a code on this phone for somebody else's. Only shown when this phone can publish. */
+@Composable
+private fun PairAnotherPhone(controller: ChartServeController, settings: AppSettings) {
+    val issued = controller.issued
+
+    // A code is gone from the server once it expires; it should be gone from
+    // this screen too, rather than being read out to somebody and refused.
+    LaunchedEffect(issued) {
+        if (issued != null) {
+            delay((issued.expiresAt - System.currentTimeMillis()).coerceAtLeast(0))
+            controller.clearIssued(issued)
+        }
+    }
+
+    SectionLabel("Pair another phone")
+    Text(
+        "Make a code for a bandmate's phone. It will be able to read the library, not " +
+            "publish to it - only whoever runs the server can make a publishing code.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (issued != null) {
+        Text(
+            "On their phone, in BandCharts, go to Settings → ChartServe and enter:",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Text(
+            "Server address",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            issued.serverUrl ?: settings.chartServeUrl,
+            style = MaterialTheme.typography.bodyLarge,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            "Code",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            issued.code,
+            style = MaterialTheme.typography.displaySmall,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "Works once, until " +
+                DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(issued.expiresAt)) + ".",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+
+    Button(
+        onClick = { controller.createPairingCode(settings.chartServeUrl, settings.chartServeToken) },
+        enabled = controller.issuePhase == IssuePhase.IDLE,
+        modifier = Modifier.padding(top = 12.dp),
+    ) {
+        Text(
+            when {
+                controller.issuePhase == IssuePhase.ISSUING -> "Making a code…"
+                issued != null -> "Make another code"
+                else -> "Make a pairing code"
+            },
+        )
+    }
+
+    controller.issueError?.let { message ->
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+
+    Spacer(Modifier.height(24.dp))
 }

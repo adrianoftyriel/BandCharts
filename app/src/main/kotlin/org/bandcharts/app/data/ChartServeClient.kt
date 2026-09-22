@@ -10,8 +10,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.bandcharts.chartserve.Catalogue
 import org.bandcharts.chartserve.ChartRecord
+import org.bandcharts.chartserve.PairCode
 import org.bandcharts.chartserve.PairRequest
 import org.bandcharts.chartserve.PairResponse
+import org.bandcharts.chartserve.ServerAddress
 import org.bandcharts.chartserve.SetlistSummary
 
 /**
@@ -46,6 +48,11 @@ object ChartServeClient {
     sealed interface PairResult {
         data class Ok(val response: PairResponse) : PairResult
         data class Failed(val reason: String) : PairResult
+    }
+
+    sealed interface PairCodeResult {
+        data class Ok(val code: PairCode) : PairCodeResult
+        data class Failed(val reason: String) : PairCodeResult
     }
 
     sealed interface CatalogueResult {
@@ -106,6 +113,34 @@ object ChartServeClient {
                     }
                 },
                 onFailure = { PairResult.Failed(describe(it)) },
+            )
+        }
+
+    /**
+     * Mints a pairing code for another phone, as this one.
+     *
+     * Only works when this device can publish, and only ever yields a code
+     * that pairs a reader - the server lets an admin alone mint a publishing
+     * one. A server older than ChartServe 0.3, or one whose admin has turned
+     * this off, answers `403` with a sentence saying so, which is what the
+     * user sees.
+     */
+    suspend fun createPairingCode(serverUrl: String, token: String): PairCodeResult =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = open(serverUrl, "/v1/pair/code", token, method = "POST")
+                connection.doOutput = true
+                connection.setFixedLengthStreamingMode(0)
+                connection.outputStream.close()
+                readResult(connection) { text -> json.decodeFromString(PairCode.serializer(), text) }
+            }.fold(
+                onSuccess = { result ->
+                    when (result) {
+                        is CallResult.Ok -> PairCodeResult.Ok(result.value)
+                        is CallResult.Failed -> PairCodeResult.Failed(result.reason)
+                    }
+                },
+                onFailure = { PairCodeResult.Failed(describe(it)) },
             )
         }
 
@@ -292,7 +327,9 @@ object ChartServeClient {
     }.getOrNull()
 
     private fun open(serverUrl: String, path: String, token: String?, method: String): HttpURLConnection {
-        val base = serverUrl.trim().trimEnd('/')
+        // Also mends an address saved before ServerAddress existed, pasted
+        // from the admin portal with its /admin still on.
+        val base = ServerAddress.normalise(serverUrl)
         require(base.startsWith("http://") || base.startsWith("https://")) {
             "That doesn't look like a server address - it should start with http:// or https://"
         }
@@ -336,6 +373,7 @@ object ChartServeClient {
         403 -> detail ?: "That wasn't allowed."
         404 -> "Not found on that server."
         413 -> detail ?: "That was too large for the server to accept."
+        429 -> detail ?: "Too many at once. Wait a few minutes and try again."
         in 500..599 -> "The server returned an error ($code). Try again shortly."
         else -> detail ?: "The server answered with $code."
     }
