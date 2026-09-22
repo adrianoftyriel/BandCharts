@@ -57,6 +57,26 @@ data class PairResponse(
     val canPublish: Boolean = false,
 )
 
+/**
+ * A pairing code as `POST /v1/pair/code` answers it. This app only ever asks
+ * as a phone with publish rights, so [canPublish] is always false here: the
+ * server only lets an admin mint a code that grants publishing.
+ */
+@Serializable
+data class PairCode(
+    val code: String,
+    val expiresAt: Long,
+    val canPublish: Boolean = false,
+    /** The device that minted it - this one, when this app asked. */
+    val issuedBy: String? = null,
+    /**
+     * The address the phone being paired should use, from the server's admin
+     * portal, when one is set. Preferred over this phone's own address, which
+     * may be a LAN address the other phone cannot reach.
+     */
+    val serverUrl: String? = null,
+)
+
 @Serializable
 data class Health(val status: String, val version: String, val charts: Int, val setlists: Int)
 
@@ -81,4 +101,35 @@ object PairingCode {
     fun normalise(raw: String): String = raw.trim().uppercase()
 
     fun looksValid(raw: String): Boolean = SHAPE.matches(normalise(raw))
+}
+
+/**
+ * A ChartServe address as somebody typed or pasted it, made into the base the
+ * API lives under.
+ *
+ * The case this exists for is the admin portal: whoever runs the server has it
+ * open at `https://charts.example.org/admin/phones`, and copying the address
+ * bar from there is the obvious way to get the address onto a phone. The API
+ * is not under `/admin`, so that address would answer every call with a 404
+ * that says nothing about why. Anything from an `/admin` segment on is the
+ * portal and is dropped; a path before it - a server behind a proxy at
+ * `/charts` - is kept.
+ */
+object ServerAddress {
+    private val ADMIN = Regex("(?i)/admin(/.*)?$")
+
+    fun normalise(raw: String): String {
+        var address = raw.trim()
+        // A query or fragment is never part of the base, and a pasted portal
+        // address can carry one (`?msg=code_created`).
+        address = address.substringBefore('#').substringBefore('?')
+        address = address.trimEnd('/')
+        val schemeEnd = address.indexOf("://").let { if (it < 0) 0 else it + 3 }
+        val path = address.substring(schemeEnd).substringAfter('/', "")
+        if (path.isNotEmpty()) {
+            val pathStart = address.length - path.length - 1
+            address = address.substring(0, pathStart) + ADMIN.replace(address.substring(pathStart), "")
+        }
+        return address.trimEnd('/')
+    }
 }
