@@ -64,6 +64,21 @@ class TransposeTest {
         assertEquals(listOf("G", "C", "D"), chordsOf(result))
     }
 
+    // The bug this guards against: opening a chart calls the transposer with
+    // semitones = 0 (a concrete Int, not the null that means "nothing asked"),
+    // to let a capo alone still go through the one code path. A key whose
+    // signature has more accidentals than its enharmonic twin - C# major's 7
+    // sharps against Db major's 5 flats - was getting silently respelled the
+    // moment the chart opened, before the player had asked to transpose
+    // anything at all.
+    @Test
+    fun `zero semitones never respells the key, even with a capo`() {
+        val s = song("{key: C#}\n[C#]a [F#]b [G#]c")
+        val result = Transposer.transpose(s, TransposeRequest(semitones = 0, capo = 1))
+        assertEquals("C#", result.soundingKey.toString())
+        assertEquals("C", result.playedKey.toString())
+    }
+
     @Test
     fun `a capo composes with a transposition`() {
         val s = song("{key: C}\n[C]a [F]b [G]c")
