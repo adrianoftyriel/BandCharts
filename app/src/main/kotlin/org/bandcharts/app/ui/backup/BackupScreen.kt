@@ -49,6 +49,19 @@ fun BackupScreen(
         if (result.resultCode == Activity.RESULT_OK && uri != null) pendingRestore = uri
     }
 
+    // TEMPORARY - see BackupController.importFromDroidMusic. Its own picker
+    // state and launcher, kept separate from the ones above so the two
+    // confirmation dialogs can say different things and this whole section
+    // comes out in one piece later.
+    var pendingDroidMusicImport by remember { mutableStateOf<Uri?>(null) }
+
+    val pickDroidMusicBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) pendingDroidMusicImport = uri
+    }
+
     Column(Modifier.fillMaxSize()) {
         Header(title = "Backup & restore", onBack = onBack)
 
@@ -93,6 +106,38 @@ fun BackupScreen(
                 modifier = Modifier.padding(top = 12.dp),
             ) { Text("Choose a backup file") }
 
+            // TEMPORARY - remove this whole section, BackupController.
+            // importFromDroidMusic and LibraryBackupManifest.
+            // LEGACY_DROIDMUSIC_EXTENSION together, once DroidMusic users
+            // have had a few releases to move to BandCharts.
+            HorizontalDivider(Modifier.padding(vertical = 24.dp))
+
+            SectionLabel("Coming from DroidMusic?")
+            Text(
+                "BandCharts is DroidMusic under a new name, but Android treats them as two " +
+                    "different apps - installing this one does not bring your old library " +
+                    "with it. If you have a backup file from DroidMusic, this reads it the " +
+                    "same way the restore above reads a BandCharts one.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = {
+                    pickDroidMusicBackup.launch(
+                        Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(
+                                Intent.EXTRA_MIME_TYPES,
+                                arrayOf(LibraryBackupManifest.MIME_TYPE, "application/octet-stream"),
+                            )
+                        },
+                    )
+                },
+                enabled = !controller.working,
+                modifier = Modifier.padding(top = 12.dp),
+            ) { Text("Import a DroidMusic backup") }
+
             if (controller.working) {
                 CircularProgressIndicator(Modifier.padding(top = 16.dp))
             }
@@ -128,6 +173,30 @@ fun BackupScreen(
                 ) { Text("Restore") }
             },
             dismissButton = { TextButton(onClick = { pendingRestore = null }) { Text("Cancel") } },
+        )
+    }
+
+    // TEMPORARY - see the note above the button that sets pendingDroidMusicImport.
+    val toImport = pendingDroidMusicImport
+    if (toImport != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDroidMusicImport = null },
+            title = { Text("Import this DroidMusic backup?") },
+            text = {
+                Text(
+                    "This replaces the current library and every set list on this device with " +
+                        "what's in the DroidMusic backup. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        controller.importFromDroidMusic(toImport)
+                        pendingDroidMusicImport = null
+                    },
+                ) { Text("Import") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDroidMusicImport = null }) { Text("Cancel") } },
         )
     }
 }

@@ -140,6 +140,30 @@ class BackupController(
         }
     }
 
+    /**
+     * TEMPORARY. Restores a library backup exported by DroidMusic, this
+     * app's name before its rename to BandCharts.
+     *
+     * `org.droidmusic.app` and `org.bandcharts.app` are different
+     * applicationIds, and therefore different apps as far as Android is
+     * concerned: installing BandCharts does not carry a DroidMusic install's
+     * data into it the way an in-place update would. This is that missing
+     * bridge, for whoever still has an old install with a library in it.
+     *
+     * It does nothing [restore] does not already do. A `.dmlib` file is the
+     * same zip, holding the same manifest JSON, that a `.bclib` file is - see
+     * [LibraryBackupManifest.LEGACY_DROIDMUSIC_EXTENSION] - so this exists
+     * only to be a distinct, named entry point in the UI rather than a
+     * distinct code path. "Restore" alone reads like it wants a BandCharts
+     * backup, and somebody moving from DroidMusic should not have to guess
+     * that it is the same thing.
+     *
+     * Remove this function, its button on [BackupScreen] and the constant it
+     * points at once DroidMusic users have had a few releases to make the
+     * move.
+     */
+    fun importFromDroidMusic(uri: Uri) = restore(uri)
+
     fun clearMessage() {
         message = null
     }

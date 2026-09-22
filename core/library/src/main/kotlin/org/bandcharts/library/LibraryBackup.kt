@@ -58,6 +58,30 @@ data class LibraryBackupManifest(
 
         /** The prefix every managed chart's bytes are stored under in the zip. */
         const val MANAGED_ENTRY_PREFIX = "managed/"
+
+        /**
+         * TEMPORARY. The extension the app used before its rename from
+         * DroidMusic to BandCharts.
+         *
+         * The manifest format did not change in the rename - only the Kotlin
+         * package did, from `org.droidmusic` to `org.bandcharts`, and this
+         * JSON is keyed by field name rather than by package. So a file
+         * ending in this extension decodes exactly as one ending in
+         * [EXTENSION] does, and that one fact is what makes
+         * `BackupController.importFromDroidMusic` safe. It is named here,
+         * once, rather than only in the app layer, so there is a single place
+         * that fact could be wrong were it ever not true.
+         *
+         * `org.droidmusic.app` and `org.bandcharts.app` are different
+         * applicationIds and therefore different apps as far as Android is
+         * concerned - installing one does not carry data into the other, and
+         * this is the bridge for whoever still has an old DroidMusic install
+         * with a library in it.
+         *
+         * Delete this alongside `importFromDroidMusic` and its button once
+         * DroidMusic users have had a few BandCharts releases to move over.
+         */
+        const val LEGACY_DROIDMUSIC_EXTENSION = "dmlib"
     }
 }
 

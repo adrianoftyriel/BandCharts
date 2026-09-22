@@ -4,6 +4,7 @@ import org.bandcharts.music.Part
 import org.bandcharts.music.PartKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -176,5 +177,41 @@ class LibraryBackupVersionTest {
         assertEquals("Wonderwall", round?.library?.works?.single()?.title)
         assertEquals(PartKind.BASS, round?.library?.songs?.single()?.bestPart?.kind)
         assertEquals("w", round?.library?.songs?.single()?.workId)
+    }
+}
+
+/**
+ * TEMPORARY - see LibraryBackupManifest.LEGACY_DROIDMUSIC_EXTENSION. Delete
+ * this class alongside that constant.
+ */
+class LegacyDroidMusicImportTest {
+
+    @Test
+    fun `a DroidMusic backup decodes exactly as a BandCharts one does`() {
+        // Shaped like a real DroidMusic export: formatVersion 1, no works -
+        // the manifest as it looked before the rename and before parts.
+        val legacy = """
+            {"formatVersion":1,"library":{"sources":[],"songs":[],"updatedAt":5},
+             "setlists":[],"exportedBy":"Jim's Phone","exportedAt":5,
+             "producer":"DroidMusic 0.1.0"}
+        """.trimIndent()
+
+        val manifest = LibraryBackupCodec.decode(legacy)
+        assertNotNull(manifest)
+        assertTrue(
+            "the rename moved a Kotlin package, not a JSON field; nothing here should refuse",
+            LibraryBackupCodec.canRead(manifest!!),
+        )
+        assertEquals("Jim's Phone", manifest.exportedBy)
+    }
+
+    @Test
+    fun `the legacy extension is what DroidMusic actually wrote`() {
+        assertEquals("dmlib", LibraryBackupManifest.LEGACY_DROIDMUSIC_EXTENSION)
+        assertNotEquals(
+            "a DroidMusic file must be recognisably not a BandCharts one by name",
+            LibraryBackupManifest.EXTENSION,
+            LibraryBackupManifest.LEGACY_DROIDMUSIC_EXTENSION,
+        )
     }
 }
