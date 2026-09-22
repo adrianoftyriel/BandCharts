@@ -148,6 +148,8 @@ object UltimateGuitar {
             chart.sourceUrl?.takeIf { it.isNotBlank() }?.let { put("source", listOf(it)) }
         }
 
+        val soundingKey = chart.keyText?.let { Key.parse(it) }
+
         val meta = parsed.meta.copy(
             title = chart.title ?: parsed.meta.title,
             artist = chart.artist,
@@ -158,15 +160,26 @@ object UltimateGuitar {
             // not the written one - and declaring the sounding key here
             // would tell the transposer the chords are already in a key they
             // are not, which then re-transposes them a second time on top of
-            // the capo. So the file's own {key:} stays exactly what the
-            // chords say when there is a capo, left for BandCharts to detect
-            // from them, the same way it would for a page that named no key
-            // at all; only a capo-free chart can trust the two to be the
-            // same thing. The page's key is not lost either way - it is what
-            // [org.bandcharts.app.ui.library.LibraryController.write] records
-            // as this chart's own key text, independent of what this file
-            // declares.
-            key = if (chart.capo == 0) chart.keyText?.let { Key.parse(it) } else parsed.meta.key,
+            // the capo.
+            //
+            // The shape key is *computed*, not detected. Leaving it for
+            // BandCharts to guess from the actual chords was tried and is
+            // what this replaces: a real chord progression has passing
+            // chords and secondary dominants a key detector can and does
+            // read differently from the page's own capo - one wrong guess
+            // there re-transposes a chart that was already correct, in
+            // whichever direction the guess happened to be wrong. Deriving
+            // the shape key from the page's own two numbers - its sounding
+            // key and its capo - has nothing to guess: it is the same
+            // subtraction [org.bandcharts.music.Transposer] itself does to
+            // work out what a player fingers under a capo, done once here so
+            // the file's declared key and its actual chords agree from the
+            // start, and no transposition happens on top of them at all.
+            key = when {
+                soundingKey == null -> parsed.meta.key
+                chart.capo == 0 -> soundingKey
+                else -> Key.bestSpelling(soundingKey, -chart.capo, soundingKey.fifths > 0)
+            },
             capo = chart.capo,
             extra = extra,
         )

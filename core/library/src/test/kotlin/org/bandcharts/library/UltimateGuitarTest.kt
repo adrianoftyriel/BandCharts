@@ -135,18 +135,24 @@ class UltimateGuitarTest {
     }
 
     /**
-     * The bug this guards against: the page's "G" is the key the song
-     * *sounds* in, and with a capo that is not the key its chords - G, D,
-     * Am, C in [BODY] - are written in. Declaring it as this file's own
-     * `{key:}` would tell the transposer those chords are already in G, and
-     * opening the chart would then transpose them a second time on top of
-     * the capo - the same chart, silently rewritten, the first time anyone
-     * looked at it.
+     * The bug this guards against, twice over. First: the page's "G#" is the
+     * key the song *sounds* in, and with a capo that is not the key its
+     * chords - G, D, Am, C in [BODY] - are written in; declaring it as this
+     * file's own `{key:}` would tell the transposer those chords are already
+     * in G#, and opening the chart would transpose them a second time on top
+     * of the capo. Second, and the reason the fix is a subtraction and not
+     * an omission: leaving the key undeclared and letting BandCharts detect
+     * it from the chords was tried and failed too, on a real chart, exactly
+     * because a real progression is not always the tidy four chords a
+     * detector scores cleanly - one wrong guess there is a wrong
+     * transposition applied to a chart that had nothing wrong with it.
+     * Computing the shape key from the page's own sounding key and capo has
+     * nothing left to guess.
      */
     @Test
-    fun `a capo'd chart does not declare a key that mismatches its chords`() {
-        val chordPro = convert(BODY, capo = 1)
-        assertFalse(chordPro.contains("{key:"))
+    fun `a capo'd chart declares the shape key its chords are actually written in`() {
+        val chordPro = convert(BODY, keyText = "G#", capo = 1)
+        assertTrue(chordPro.contains("{key: G}"))
     }
 
     /**
