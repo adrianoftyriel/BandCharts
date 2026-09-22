@@ -471,6 +471,19 @@ class LibraryController(
     )
 
     /**
+     * Kicks off a ChartServe sync outside the "Rescan" action - see
+     * [org.bandcharts.app.ui.library.LibraryScreen], which calls this once a
+     * paired device has no ChartServe source yet. Pairing itself only stores a
+     * token; without this, a freshly-paired player who has never heard of
+     * "Rescan" would open the library and see nothing from the band server at
+     * all until they happened to tap it.
+     */
+    fun syncChartServeNow() {
+        if (scanning) return
+        scope.launch { syncChartServe() }
+    }
+
+    /**
      * Pulls the paired ChartServe's whole catalogue down, so every chart in it
      * opens with no signal - the same promise a managed copy makes, and for
      * the same reason. Does nothing when this device isn't paired.

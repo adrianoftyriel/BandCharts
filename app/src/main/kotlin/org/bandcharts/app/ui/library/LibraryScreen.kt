@@ -100,6 +100,20 @@ fun LibraryScreen(
     onFinishPicking: (List<SongRef>) -> Unit = {},
 ) {
     val index by controller.index.collectAsState()
+
+    // Pairing only stores a token - it does not itself fetch anything. Without
+    // this, a player who paired and came straight here would see no band
+    // server folder at all until they discovered that "Rescan" also covers
+    // it. Keyed on the token, so it fires once per pairing rather than on
+    // every recomposition, and does nothing once the source has appeared.
+    LaunchedEffect(settings.chartServeToken) {
+        if (settings.chartServeToken.isNotBlank() &&
+            index.sources.none { it.kind == SourceKind.CHARTSERVE }
+        ) {
+            controller.syncChartServeNow()
+        }
+    }
+
     var query by remember { mutableStateOf("") }
     var sourceFilter by remember { mutableStateOf<String?>(null) }
     var showSources by remember { mutableStateOf(false) }
