@@ -26,6 +26,20 @@ enum class SourceKind {
 
     /** A single file granted individually rather than as part of a tree. */
     EXTERNAL_FILE,
+
+    /**
+     * The band's own ChartServe, synced down over HTTP rather than read
+     * through a DocumentsProvider.
+     *
+     * Its songs still end up as ordinary managed-style copies in the app's own
+     * storage - a sync has to promise "will open with no signal" exactly as a
+     * managed copy does - so nothing downstream of the library index needs to
+     * treat this differently from [MANAGED]. What is different is entirely on
+     * the way in: a rescan of this source means asking a server for a
+     * catalogue rather than walking a tree, which lives in the app layer
+     * against `ChartServeClient` rather than here.
+     */
+    CHARTSERVE,
 }
 
 /**

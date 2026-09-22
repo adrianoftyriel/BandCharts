@@ -49,7 +49,13 @@ data class SetlistSummary(
 data class PairRequest(val code: String, val deviceName: String? = null)
 
 @Serializable
-data class PairResponse(val token: String, val deviceId: String, val deviceName: String? = null)
+data class PairResponse(
+    val token: String,
+    val deviceId: String,
+    val deviceName: String? = null,
+    /** Whether this device may also publish - see `org.chartserve.Auth.canPublish` on the server. */
+    val canPublish: Boolean = false,
+)
 
 @Serializable
 data class Health(val status: String, val version: String, val charts: Int, val setlists: Int)

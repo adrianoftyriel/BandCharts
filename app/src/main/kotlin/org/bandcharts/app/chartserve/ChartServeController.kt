@@ -29,7 +29,7 @@ class ChartServeController(private val scope: CoroutineScope) {
         serverUrl: String,
         code: String,
         deviceName: String,
-        onPaired: (serverUrl: String, token: String, deviceId: String) -> Unit,
+        onPaired: (serverUrl: String, token: String, deviceId: String, canPublish: Boolean) -> Unit,
     ) {
         if (phase == PairPhase.PAIRING) return
         val trimmedUrl = serverUrl.trim()
@@ -42,8 +42,12 @@ class ChartServeController(private val scope: CoroutineScope) {
             error = null
             when (val result = ChartServeClient.pair(trimmedUrl, code, deviceName)) {
                 is ChartServeClient.PairResult.Failed -> error = result.reason
-                is ChartServeClient.PairResult.Ok ->
-                    onPaired(trimmedUrl, result.response.token, result.response.deviceId)
+                is ChartServeClient.PairResult.Ok -> onPaired(
+                    trimmedUrl,
+                    result.response.token,
+                    result.response.deviceId,
+                    result.response.canPublish,
+                )
             }
             phase = PairPhase.IDLE
         }

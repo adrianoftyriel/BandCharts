@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.bandcharts.app.data.AppSettings
 import org.bandcharts.app.data.DocumentSources
 import org.bandcharts.app.ui.common.ChoicePill
 import org.bandcharts.app.ui.common.EmptyState
@@ -81,6 +82,7 @@ import org.bandcharts.music.Key
 @Composable
 fun LibraryScreen(
     controller: LibraryController,
+    settings: AppSettings,
     onOpenSong: (SongRef) -> Unit,
     onAddSongToSetlist: (SongRef) -> Unit,
     onAddSongsToSetlist: (List<SongRef>) -> Unit,
@@ -322,8 +324,10 @@ fun LibraryScreen(
         if (controller.selecting && addingToSetlistName == null) {
             BulkActionBar(
                 enabled = controller.selection.isNotEmpty(),
+                showPublish = settings.chartServeCanPublish,
                 onTranspose = { transposingMany = controller.selectedSongs() },
                 onAddToSetlist = { onAddSongsToSetlist(controller.selectedSongs()) },
+                onPublish = { controller.copyToChartServe(controller.selectedSongs()) },
                 onRemove = { removingMany = controller.selectedSongs() },
             )
         }
@@ -404,10 +408,17 @@ fun LibraryScreen(
                     )
                 }
                 items(songs, key = { it.id }) { song ->
+                    val fromChartServe = controller.isFromChartServe(song)
                     SongRow(
                         song = song,
                         sourceLabel = controller.sourceLabel(index, song.sourceId),
                         canDeleteFile = { controller.canDeleteFile(song) },
+                        // Publishing a copy that just came from that same
+                        // server back to it would be a no-op offered as a
+                        // button, so it is only shown for a chart that did not
+                        // already come from there.
+                        canPublish = settings.chartServeCanPublish && !fromChartServe,
+                        canCopyToDevice = fromChartServe,
                         selecting = controller.selecting,
                         selected = song.id in controller.selection,
                         // While a selection is running both gestures mean the
@@ -427,6 +438,11 @@ fun LibraryScreen(
                         onRename = { renaming = song },
                         onRemove = { controller.removeFromLibrary(song) },
                         onDeleteFile = { deleting = song },
+                        onCopyToChartServe = { controller.copyToChartServe(listOf(song)) },
+                        onMoveToChartServe = {
+                            controller.copyToChartServe(listOf(song), removeAfter = true)
+                        },
+                        onCopyToDevice = { controller.copyChartServeSongsToDevice(listOf(song)) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 }
@@ -585,6 +601,10 @@ private fun ConfirmRemoveDialog(
             "The files themselves are not touched - they stay where you picked them from."
         SourceKind.MANAGED ->
             "The copies BandCharts made on this device are deleted; the originals are not."
+        SourceKind.CHARTSERVE ->
+            "The copies BandCharts downloaded from the band server are deleted from this " +
+                "device; nothing changes on the server itself. A later sync brings them back " +
+                "if this device is still paired."
     }
 
     AlertDialog(
@@ -838,6 +858,8 @@ private fun SongRow(
     song: SongRef,
     sourceLabel: String,
     canDeleteFile: () -> Boolean,
+    canPublish: Boolean,
+    canCopyToDevice: Boolean,
     selecting: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -848,6 +870,9 @@ private fun SongRow(
     onRename: () -> Unit,
     onRemove: () -> Unit,
     onDeleteFile: () -> Unit,
+    onCopyToChartServe: () -> Unit,
+    onMoveToChartServe: () -> Unit,
+    onCopyToDevice: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -871,6 +896,8 @@ private fun SongRow(
             // Only a chart made of characters has anything to edit. A PDF gets
             // Rename, which is the whole of what can be changed about it.
             canEdit = song.isTransposable,
+            canPublish = canPublish,
+            canCopyToDevice = canCopyToDevice,
             onDismiss = { menuOpen = false },
             onAddToSetlist = {
                 menuOpen = false
@@ -896,6 +923,18 @@ private fun SongRow(
                 menuOpen = false
                 onDeleteFile()
             },
+            onCopyToChartServe = {
+                menuOpen = false
+                onCopyToChartServe()
+            },
+            onMoveToChartServe = {
+                menuOpen = false
+                onMoveToChartServe()
+            },
+            onCopyToDevice = {
+                menuOpen = false
+                onCopyToDevice()
+            },
         )
         SongRowBody(
             song = song,
@@ -916,6 +955,8 @@ private fun SongMenu(
     canDeleteFile: Boolean,
     canTranspose: Boolean,
     canEdit: Boolean,
+    canPublish: Boolean,
+    canCopyToDevice: Boolean,
     onDismiss: () -> Unit,
     onAddToSetlist: () -> Unit,
     onTranspose: () -> Unit,
@@ -923,6 +964,9 @@ private fun SongMenu(
     onRename: () -> Unit,
     onRemove: () -> Unit,
     onDeleteFile: () -> Unit,
+    onCopyToChartServe: () -> Unit,
+    onMoveToChartServe: () -> Unit,
+    onCopyToDevice: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text("Add to a set list") }, onClick = onAddToSetlist)
@@ -933,6 +977,13 @@ private fun SongMenu(
             DropdownMenuItem(text = { Text("Edit the chart\u2026") }, onClick = onEdit)
         }
         DropdownMenuItem(text = { Text("Rename\u2026") }, onClick = onRename)
+        if (canPublish) {
+            DropdownMenuItem(text = { Text("Copy to the band server") }, onClick = onCopyToChartServe)
+            DropdownMenuItem(text = { Text("Move to the band server") }, onClick = onMoveToChartServe)
+        }
+        if (canCopyToDevice) {
+            DropdownMenuItem(text = { Text("Copy to this device") }, onClick = onCopyToDevice)
+        }
         DropdownMenuItem(text = { Text("Remove from library") }, onClick = onRemove)
         if (canDeleteFile) {
             HorizontalDivider()
@@ -1073,8 +1124,10 @@ private fun NewChartMenu(
 @Composable
 private fun BulkActionBar(
     enabled: Boolean,
+    showPublish: Boolean,
     onTranspose: () -> Unit,
     onAddToSetlist: () -> Unit,
+    onPublish: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
@@ -1087,6 +1140,12 @@ private fun BulkActionBar(
     ) {
         TextButton(enabled = enabled, onClick = onAddToSetlist) { Text("Add to set list") }
         TextButton(enabled = enabled, onClick = onTranspose) { Text("Transpose") }
+        // Copying only, in bulk. Moving - which also hides the local entry -
+        // stays a per-chart decision, not something forty charts get done to
+        // them by one tap.
+        if (showPublish) {
+            TextButton(enabled = enabled, onClick = onPublish) { Text("Copy to band server") }
+        }
         Box(Modifier.weight(1f))
         TextButton(enabled = enabled, onClick = onRemove) { Text("Remove") }
     }

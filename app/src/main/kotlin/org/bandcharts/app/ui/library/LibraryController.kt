@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.bandcharts.app.data.ChartServeClient
 import org.bandcharts.app.data.DocumentSources
 import org.bandcharts.app.data.LibraryRepository
 import org.bandcharts.app.data.SetlistRepository
@@ -454,6 +455,211 @@ class LibraryController(
             for (source in index.value.sources) {
                 if (source.kind == SourceKind.EXTERNAL_TREE) scan(source)
             }
+            syncChartServe()
+        }
+    }
+
+    // ---- ChartServe ---------------------------------------------------------
+
+    /** The always-present source a paired ChartServe's songs belong to. */
+    private fun chartServeSource(serverUrl: String): SourceRef = SourceRef(
+        id = CHARTSERVE_SOURCE_ID,
+        kind = SourceKind.CHARTSERVE,
+        uri = serverUrl,
+        label = "Band server",
+        addedAt = System.currentTimeMillis(),
+    )
+
+    /**
+     * Pulls the paired ChartServe's whole catalogue down, so every chart in it
+     * opens with no signal - the same promise a managed copy makes, and for
+     * the same reason. Does nothing when this device isn't paired.
+     *
+     * Matched to what is already on disk by content hash - the cache
+     * directory is named after it - so re-running this after nothing has
+     * changed downloads nothing, and [LibraryIndex.withSongsFrom] still
+     * preserves every rename, transpose and favourite a player set on one of
+     * these charts, exactly as a folder rescan does.
+     */
+    private suspend fun syncChartServe() {
+        val current = settings.settings.value
+        val serverUrl = current.chartServeUrl
+        val token = current.chartServeToken
+        if (serverUrl.isBlank() || token.isBlank()) return
+
+        scanning = true
+        scanStatus = "Reading the band server's catalogue"
+
+        when (val result = ChartServeClient.fetchCatalogue(serverUrl, token)) {
+            is ChartServeClient.CatalogueResult.Failed -> lastError = result.reason
+            is ChartServeClient.CatalogueResult.Ok -> {
+                val source = chartServeSource(serverUrl)
+                val known = index.value.sources.firstOrNull { it.id == source.id }
+                if (known == null || known.uri != serverUrl) repository.addSource(source)
+
+                val directory = File(context.filesDir, CHARTSERVE_DIRECTORY).apply { mkdirs() }
+                val fresh = mutableListOf<SongRef>()
+                var failed = 0
+
+                result.catalogue.charts.forEachIndexed { position, record ->
+                    scanStatus = "Downloading from the band server " +
+                        "(${position + 1}/${result.catalogue.count})"
+                    val target = File(directory, record.contentHash)
+                    if (!target.exists()) {
+                        val downloaded = ChartServeClient.downloadChart(
+                            serverUrl,
+                            token,
+                            record.contentHash,
+                            target,
+                        )
+                        if (downloaded is ChartServeClient.DownloadResult.Failed) {
+                            failed++
+                            return@forEachIndexed
+                        }
+                    }
+                    fresh += SongRef(
+                        id = DocumentSources.stableId(source.id, record.contentHash),
+                        sourceId = source.id,
+                        uri = Uri.fromFile(target).toString(),
+                        displayName = record.displayName,
+                        kind = fileKindOf(record.kind),
+                        sizeBytes = target.length(),
+                        modifiedAt = record.uploadedAt,
+                        contentHash = record.contentHash,
+                        title = record.title,
+                        artist = record.artist,
+                        keyText = record.keyText,
+                    )
+                }
+
+                repository.replaceSongsFrom(source.id, fresh, System.currentTimeMillis())
+
+                // A cached file whose chart left the catalogue belongs to
+                // nothing any more - the same reasoning DocumentSources'
+                // managed-copy cleanup uses, applied to this cache instead.
+                val kept = fresh.mapNotNull { it.contentHash }.toSet()
+                directory.listFiles()?.forEach { file -> if (file.name !in kept) file.delete() }
+
+                lastError = when {
+                    failed == 0 -> null
+                    failed == 1 -> "One chart from the band server could not be downloaded."
+                    else -> "$failed charts from the band server could not be downloaded."
+                }
+            }
+        }
+
+        scanning = false
+        scanStatus = ""
+    }
+
+    private fun fileKindOf(kind: String?): FileKind =
+        runCatching { FileKind.valueOf(kind.orEmpty()) }.getOrDefault(FileKind.UNKNOWN)
+
+    /**
+     * Publishes charts to the band server, so the rest of the band can read
+     * them too. Only offered when this device was paired with publish rights.
+     *
+     * [removeAfter] additionally removes the local entry once its copy is
+     * safely on the server - the same non-destructive "hidden, not deleted"
+     * [removeFromLibrary] already uses, so a "move" here can never lose a
+     * chart even if the upload silently failed to actually take.
+     */
+    fun copyToChartServe(songs: List<SongRef>, removeAfter: Boolean = false) {
+        val current = settings.settings.value
+        val serverUrl = current.chartServeUrl
+        val token = current.chartServeToken
+        if (serverUrl.isBlank() || token.isBlank() || !current.chartServeCanPublish) return
+        val targets = songs.filterNot { it.sourceId == CHARTSERVE_SOURCE_ID }
+        if (targets.isEmpty()) return
+
+        scope.launch {
+            scanning = true
+            var sent = 0
+            var failed = 0
+
+            for ((position, song) in targets.withIndex()) {
+                scanStatus = if (targets.size == 1) {
+                    "Publishing ${song.bestTitle}"
+                } else {
+                    "Publishing ${song.bestTitle} (${position + 1}/${targets.size})"
+                }
+
+                val hash = song.contentHash ?: DocumentSources.hashOfFile(
+                    context.contentResolver,
+                    Uri.parse(song.uri),
+                    song.sizeBytes,
+                )
+                if (hash == null) {
+                    failed++
+                    continue
+                }
+
+                val meta = ChartServeClient.UploadMeta(
+                    displayName = song.displayName,
+                    title = song.bestTitle,
+                    artist = song.artist,
+                    kind = song.kind.name,
+                    keyText = song.key?.toString(),
+                    // Which player's part this is, and what work it belongs to,
+                    // are not round-tripped yet - see docs/DESIGN.md for why
+                    // that is a separate piece of work from getting a chart
+                    // there and back at all.
+                    part = null,
+                    workTitle = null,
+                )
+
+                val result = ChartServeClient.uploadChart(
+                    serverUrl,
+                    token,
+                    hash,
+                    meta,
+                    song.sizeBytes,
+                ) {
+                    context.contentResolver.openInputStream(Uri.parse(song.uri))
+                        ?: error("Could not read ${song.displayName}")
+                }
+
+                when (result) {
+                    is ChartServeClient.UploadResult.Failed -> failed++
+                    is ChartServeClient.UploadResult.Ok -> {
+                        sent++
+                        if (removeAfter) repository.updateSong(song.id) { it.copy(hidden = true) }
+                    }
+                }
+            }
+
+            scanning = false
+            scanStatus = ""
+            if (removeAfter) stopSelecting()
+
+            lastError = when {
+                failed == 0 -> null
+                sent == 0 -> "Could not publish to the band server."
+                else -> "Published $sent, but $failed could not be sent."
+            }
+
+            // So the newly published charts also show correctly from the
+            // band-server folder, rather than only from wherever they came in.
+            if (sent > 0) syncChartServe()
+        }
+    }
+
+    /**
+     * Keeps an independent copy of a band-server chart on this device.
+     *
+     * Independent on purpose: this copy is not touched by a future sync, so
+     * it survives the chart being removed from the server, or the server
+     * itself going away for the evening.
+     */
+    fun copyChartServeSongsToDevice(songs: List<SongRef>) {
+        val targets = songs.filter { it.sourceId == CHARTSERVE_SOURCE_ID }
+        if (targets.isEmpty()) return
+        scope.launch {
+            val copies = targets.mapNotNull { song ->
+                DocumentSources.copyIntoManagedStorage(context, song, DocumentSources.MANAGED_SOURCE_ID)
+            }
+            if (copies.isNotEmpty()) fileManaged(copies)
+            stopSelecting()
         }
     }
 
@@ -488,6 +694,15 @@ class LibraryController(
                 SourceKind.EXTERNAL_FILE -> snapshot.songsFrom(sourceId).map { Uri.parse(it.uri) }
                 SourceKind.MANAGED -> {
                     DocumentSources.deleteManagedCopies(context, snapshot.songsFrom(sourceId))
+                    emptyList()
+                }
+                // Nothing was granted - this is a cache of a server's own
+                // library, not a folder Android handed over. Clearing it here
+                // only forgets today's local copy; pairing lives in Settings,
+                // and the next sync brings the catalogue straight back if this
+                // device is still paired.
+                SourceKind.CHARTSERVE -> {
+                    File(context.filesDir, CHARTSERVE_DIRECTORY).listFiles()?.forEach { it.delete() }
                     emptyList()
                 }
             }
@@ -761,6 +976,9 @@ class LibraryController(
      */
     fun canDeleteFile(song: SongRef): Boolean = DocumentSources.canDeleteFile(context, song)
 
+    /** Whether this chart's copy came from the band server, rather than one of this device's own folders. */
+    fun isFromChartServe(song: SongRef): Boolean = song.sourceId == CHARTSERVE_SOURCE_ID
+
     /**
      * Deletes the file behind a chart and forgets it.
      *
@@ -862,5 +1080,11 @@ class LibraryController(
 
     private companion object {
         const val MANAGED_DIRECTORY = "managed"
+
+        /** One ChartServe pairing per app, exactly as there is one Managed source. */
+        const val CHARTSERVE_SOURCE_ID = "chartserve"
+
+        /** Where a synced ChartServe's charts are cached, named by content hash. */
+        const val CHARTSERVE_DIRECTORY = "chartserve"
     }
 }

@@ -46,4 +46,13 @@ data class AppSettings(
     val chartServeToken: String = "",
     /** This device's id on that server, so it can be recognised in `/v1/devices`. */
     val chartServeDeviceId: String = "",
+    /**
+     * Whether this device may publish to ChartServe, not only read from it.
+     *
+     * Set from what pairing returned, not asked for locally: a phone cannot
+     * grant itself publish rights, so this is only ever true because the
+     * server's own admin minted a code that said so - see
+     * [org.bandcharts.app.data.ChartServeClient.PairResult].
+     */
+    val chartServeCanPublish: Boolean = false,
 )
