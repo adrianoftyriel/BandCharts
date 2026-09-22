@@ -151,7 +151,22 @@ object UltimateGuitar {
         val meta = parsed.meta.copy(
             title = chart.title ?: parsed.meta.title,
             artist = chart.artist,
-            key = chart.keyText?.let { Key.parse(it) },
+            // The page's own reported key is the key the song *sounds* in,
+            // which is only the same key the chords on the page are written
+            // in when there is no capo. With one, the page's chords are
+            // shapes for that capo - what BandCharts calls the played key,
+            // not the written one - and declaring the sounding key here
+            // would tell the transposer the chords are already in a key they
+            // are not, which then re-transposes them a second time on top of
+            // the capo. So the file's own {key:} stays exactly what the
+            // chords say when there is a capo, left for BandCharts to detect
+            // from them, the same way it would for a page that named no key
+            // at all; only a capo-free chart can trust the two to be the
+            // same thing. The page's key is not lost either way - it is what
+            // [org.bandcharts.app.ui.library.LibraryController.write] records
+            // as this chart's own key text, independent of what this file
+            // declares.
+            key = if (chart.capo == 0) chart.keyText?.let { Key.parse(it) } else parsed.meta.key,
             capo = chart.capo,
             extra = extra,
         )

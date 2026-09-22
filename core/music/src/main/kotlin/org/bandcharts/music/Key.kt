@@ -105,6 +105,13 @@ data class Key(val tonic: Note, val mode: Mode) {
          * choice for the horn and vocal charts this is mostly used on.
          */
         fun bestSpelling(from: Key, semitones: Int, preferSharps: Boolean = false): Key {
+            // Zero is the identity, not a transposition to re-spell. Without
+            // this, "zero semitones" still re-derives the fewest-accidental
+            // spelling for the pitch class, which can differ from the one
+            // that was asked for: C# major has 7 sharps in its signature and
+            // its enharmonic twin Db has 5 flats, so a key declared as C#
+            // came back respelled as Db even though nothing had moved.
+            if (semitones == 0) return from
             val target = Math.floorMod(from.pitchClass + semitones, 12)
             val candidates = enumerateSpellings(target).map { Key(it, from.mode) }
             val practical = candidates.filter { it.isPractical }.ifEmpty { candidates }

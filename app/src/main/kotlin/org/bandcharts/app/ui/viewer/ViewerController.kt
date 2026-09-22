@@ -527,7 +527,18 @@ class ViewerController(
     private fun applyTranspose() {
         val chart = chartSource ?: return
         val request = TransposeRequest(
-            semitones = transposeSemitones,
+            // No manual transposition yet: ask for this song's own key by
+            // name (from the library, not the file - see SongRef.key)
+            // rather than "zero semitones from whatever the file's chords
+            // happen to be written in". The two agree for an ordinary chart,
+            // where they are the same key by construction, but not for one
+            // imported with a capo: the file's chords are written as shapes
+            // for that capo, and asking for "zero semitones" from a shape
+            // key silently re-transposes them, where asking for the song's
+            // own known key does not - it only says what the capo already
+            // gets it to.
+            semitones = if (transposeSemitones == 0) null else transposeSemitones,
+            targetKey = if (transposeSemitones == 0) song?.key else null,
             capo = capo,
             includeTab = false,
         )

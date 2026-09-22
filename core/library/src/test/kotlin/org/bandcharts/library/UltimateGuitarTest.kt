@@ -118,10 +118,63 @@ class UltimateGuitarTest {
 
         assertTrue(chordPro.contains("{title: Test Song}"))
         assertTrue(chordPro.contains("{artist: The Testers}"))
-        assertTrue(chordPro.contains("{key: G}"))
         assertTrue(chordPro.contains("{capo: 2}"))
         assertTrue(chordPro.contains("{tuning: Standard}"))
         assertTrue(chordPro.contains("{source: $SOURCE_URL}"))
+    }
+
+    /**
+     * A chart with no capo is the one case where the page's reported key and
+     * the key its chords are written in are the same key, so it is the one
+     * case safe to declare directly.
+     */
+    @Test
+    fun `a capo-free chart declares its key directly`() {
+        val chordPro = convert(BODY, capo = 0)
+        assertTrue(chordPro.contains("{key: G}"))
+    }
+
+    /**
+     * The bug this guards against: the page's "G" is the key the song
+     * *sounds* in, and with a capo that is not the key its chords - G, D,
+     * Am, C in [BODY] - are written in. Declaring it as this file's own
+     * `{key:}` would tell the transposer those chords are already in G, and
+     * opening the chart would then transpose them a second time on top of
+     * the capo - the same chart, silently rewritten, the first time anyone
+     * looked at it.
+     */
+    @Test
+    fun `a capo'd chart does not declare a key that mismatches its chords`() {
+        val chordPro = convert(BODY, capo = 1)
+        assertFalse(chordPro.contains("{key:"))
+    }
+
+    /**
+     * The full journey: convert, save, open. [BODY]'s chords are written as
+     * G - which is what a capo 1 player actually fingers - so opening a
+     * chart the page reported as being in G# has to sound G#, played as G,
+     * without moving a single chord it already had right.
+     */
+    @Test
+    fun `opening a capo'd import sounds the page's key without moving its chords`() {
+        val chordPro = convert(BODY, keyText = "G#", capo = 1)
+        val song = SongParser.parse(chordPro)
+        assertEquals(1, song.meta.capo)
+
+        // What the viewer asks for on first open - see
+        // ViewerController.applyTranspose: no manual transposition yet, so
+        // the target is the chart's own key rather than "zero semitones".
+        val result = org.bandcharts.music.Transposer.transpose(
+            song,
+            org.bandcharts.music.TransposeRequest(targetKey = org.bandcharts.music.Key.parse("G#"), capo = 1),
+        )
+        assertEquals("G#", result.soundingKey.toString())
+        assertEquals("G", result.playedKey.toString())
+        assertEquals(
+            "the chords BandCharts scraped must not move just because the chart was opened",
+            listOf("G", "D", "Am", "C", "G", "D", "Am", "C", "C", "G", "D", "G", "D"),
+            result.song.chords().map { it.toString() },
+        )
     }
 
     /**
@@ -258,19 +311,21 @@ class UltimateGuitarTest {
 
     // ---- fixtures -----------------------------------------------------------
 
-    private fun convert(body: String): String =
-        UltimateGuitar.toChordPro(requireNotNull(UltimateGuitar.parsePage(page(body), SOURCE_URL)))
+    private fun convert(body: String, keyText: String = "G", capo: Int = 2): String =
+        UltimateGuitar.toChordPro(
+            requireNotNull(UltimateGuitar.parsePage(page(body, keyText, capo), SOURCE_URL)),
+        )
 
     /**
      * A page in the shape the site serves: the chart lives in a JSON blob in a
      * `data-content` attribute, HTML-escaped as an attribute has to be.
      */
-    private fun page(body: String): String = html(
+    private fun page(body: String, keyText: String = "G", capo: Int = 2): String = html(
         """{"store":{"page":{"data":{""" +
             """"tab":{"song_name":"Test Song","artist_name":"The Testers",""" +
-            """"tonality_name":"G"},""" +
+            """"tonality_name":${jsonString(keyText)}},""" +
             """"tab_view":{"wiki_tab":{"content":${jsonString(body)}},""" +
-            """"meta":{"capo":2,"tuning":{"name":"Standard"}}}}}}}""",
+            """"meta":{"capo":$capo,"tuning":{"name":"Standard"}}}}}}}""",
     )
 
     /** The same page with a decoy `content` ahead of the chart's own. */
