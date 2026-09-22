@@ -39,4 +39,11 @@ data class AppSettings(
      * correctly and permanently reports that there is nothing to install.
      */
     val updateChannel: UpdateChannel = UpdateChannel.PRERELEASE,
+
+    /** The band's ChartServe, once paired. Empty means "not set up". */
+    val chartServeUrl: String = "",
+    /** This device's own token, from pairing. Never the admin token - see [org.bandcharts.app.data.ChartServeClient]. */
+    val chartServeToken: String = "",
+    /** This device's id on that server, so it can be recognised in `/v1/devices`. */
+    val chartServeDeviceId: String = "",
 )

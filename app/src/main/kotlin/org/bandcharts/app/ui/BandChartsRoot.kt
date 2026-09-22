@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
 import org.bandcharts.app.BandChartsApp
+import org.bandcharts.app.chartserve.ChartServeController
 import org.bandcharts.app.data.AppSettings
 import org.bandcharts.app.data.DocumentSources
 import org.bandcharts.app.input.PageAction
@@ -34,6 +35,7 @@ import org.bandcharts.app.ui.backstage.BackstageController
 import org.bandcharts.app.ui.backstage.BackstageScreen
 import org.bandcharts.app.ui.backup.BackupController
 import org.bandcharts.app.ui.backup.BackupScreen
+import org.bandcharts.app.ui.chartserve.ChartServeScreen
 import org.bandcharts.app.ui.library.LibraryController
 import org.bandcharts.app.ui.library.ImportTextDialog
 import org.bandcharts.app.ui.library.ImportUrlDialog
@@ -97,6 +99,8 @@ fun BandChartsRoot(
     }
 
     val updateController = remember { UpdateController(context, app.appScope) }
+
+    val chartServeController = remember { ChartServeController(app.appScope) }
 
     val captureController = remember {
         CaptureController(context, app.appScope, app.library)
@@ -645,9 +649,17 @@ fun BandChartsRoot(
                         onOpenUpdates = { navigator.go(Screen.Updates) },
                         onOpenDiagnostics = { navigator.go(Screen.Diagnostics) },
                         onOpenBackupRestore = { navigator.go(Screen.Backup) },
+                        onOpenChartServe = { navigator.go(Screen.ChartServe) },
                         onBack = { navigator.back() },
                         versionName = BandChartsApp.VERSION,
                         releaseTag = updateController.currentTag,
+                    )
+
+                    Screen.ChartServe -> ChartServeScreen(
+                        controller = chartServeController,
+                        settings = settings,
+                        onChange = { transform -> app.settings.updateAsync(transform) },
+                        onBack = { navigator.back() },
                     )
 
                     Screen.Backup -> BackupScreen(

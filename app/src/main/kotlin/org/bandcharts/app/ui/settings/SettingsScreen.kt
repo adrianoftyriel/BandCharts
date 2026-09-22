@@ -37,6 +37,7 @@ fun SettingsScreen(
     onOpenUpdates: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenBackupRestore: () -> Unit,
+    onOpenChartServe: () -> Unit,
     onBack: () -> Unit,
     versionName: String,
     releaseTag: String?,
@@ -156,6 +157,19 @@ fun SettingsScreen(
                         onCheckedChange = { on -> onChange { it.copy(indexChartContents = on) } },
                     )
                 },
+            )
+
+            SectionLabel("ChartServe")
+
+            SettingRow(
+                title = "Band's chart library",
+                subtitle = if (settings.chartServeToken.isNotBlank()) {
+                    "Paired with ${settings.chartServeUrl}."
+                } else {
+                    "Not set up. Pair with a server to read the band's shared charts and set " +
+                        "lists between gigs."
+                },
+                onClick = onOpenChartServe,
             )
 
             SectionLabel("When something goes wrong")
