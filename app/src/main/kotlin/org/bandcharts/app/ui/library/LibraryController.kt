@@ -374,6 +374,10 @@ class LibraryController(
             title = chart.title,
             artist = chart.artist,
             keyText = chart.keyText?.let { Key.parse(it) }?.toString() ?: detectedKey(chordPro),
+            // A starting point, not a permanent link to the page: from here
+            // it is the player's to change, including back to off, exactly as
+            // userCapo always has been - see its doc comment in Library.kt.
+            userCapo = chart.capo.coerceIn(0, SongRef.MAX_CAPO),
         )
     }
 

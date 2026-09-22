@@ -60,9 +60,19 @@ object Transposer {
 
         val preferSharps = request.preferSharps ?: (fromKey.fifths > 0)
 
+        // Zero is treated the same as "nothing asked", not as a transposition
+        // to re-spell. The caller that opens a chart with a capo alone - see
+        // ViewerController.applyTranspose - passes a concrete 0 here rather
+        // than null, because its state can't represent "no request yet"
+        // separately from "no semitones". Respelling on that 0 was a real
+        // bug: bestSpelling picks the fewest accidentals in the *key
+        // signature*, and for a key like C# that is a different note (Db)
+        // from the one seven sharps away from nowhere - so a chart declared
+        // in C# was silently shown as Db the moment it was opened, before
+        // anyone had asked to transpose anything.
         val soundingKey = when {
             request.targetKey != null -> request.targetKey
-            request.semitones != null ->
+            request.semitones != null && request.semitones != 0 ->
                 Key.bestSpelling(fromKey, request.semitones, preferSharps)
             else -> fromKey
         }
