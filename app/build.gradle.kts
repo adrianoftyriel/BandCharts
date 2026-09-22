@@ -160,6 +160,7 @@ dependencies {
     implementation(project(":core:library"))
     implementation(project(":core:session"))
     implementation(project(":core:update"))
+    implementation(project(":core:chartserve"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
