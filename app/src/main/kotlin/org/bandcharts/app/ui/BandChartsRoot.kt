@@ -459,6 +459,7 @@ fun BandChartsRoot(
 
                         LibraryScreen(
                             controller = libraryController,
+                            settings = settings,
                             onOpenSong = { song ->
                                 viewerController.open(song.id, null, -1, settings.viewer.unicodeAccidentals)
                                 navigator.go(Screen.Viewer(song.id))

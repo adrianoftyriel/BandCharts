@@ -57,9 +57,20 @@ fun ChartServeScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "Reads charts and set lists from that server. To stop, unpair here and, if " +
-                        "you want it gone from the server too, revoke it from there as well - " +
-                        "unpairing here only forgets the token on this phone.",
+                    if (settings.chartServeCanPublish) {
+                        "Reads charts and set lists from that server, and can publish to it too."
+                    } else {
+                        "Reads charts and set lists from that server. Ask whoever runs it for a " +
+                            "publishing code if this phone should be able to add charts as well."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Text(
+                    "To stop, unpair here and, if you want it gone from the server too, revoke " +
+                        "it from there as well - unpairing here only forgets the token on this " +
+                        "phone.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
@@ -67,7 +78,12 @@ fun ChartServeScreen(
                 OutlinedButton(
                     onClick = {
                         onChange {
-                            it.copy(chartServeUrl = "", chartServeToken = "", chartServeDeviceId = "")
+                            it.copy(
+                                chartServeUrl = "",
+                                chartServeToken = "",
+                                chartServeDeviceId = "",
+                                chartServeCanPublish = false,
+                            )
                         }
                     },
                 ) { Text("Unpair this device") }
@@ -109,12 +125,13 @@ fun ChartServeScreen(
                             serverUrl = serverUrl,
                             code = PairingCode.normalise(code),
                             deviceName = settings.deviceName,
-                        ) { pairedUrl, token, deviceId ->
+                        ) { pairedUrl, token, deviceId, canPublish ->
                             onChange {
                                 it.copy(
                                     chartServeUrl = pairedUrl,
                                     chartServeToken = token,
                                     chartServeDeviceId = deviceId,
+                                    chartServeCanPublish = canPublish,
                                 )
                             }
                         }

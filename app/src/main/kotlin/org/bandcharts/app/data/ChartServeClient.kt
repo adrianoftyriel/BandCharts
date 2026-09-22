@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.bandcharts.chartserve.Catalogue
+import org.bandcharts.chartserve.ChartRecord
 import org.bandcharts.chartserve.PairRequest
 import org.bandcharts.chartserve.PairResponse
 import org.bandcharts.chartserve.SetlistSummary
@@ -66,6 +67,22 @@ object ChartServeClient {
     sealed interface DownloadResult {
         data class Ok(val file: File) : DownloadResult
         data class Failed(val reason: String) : DownloadResult
+    }
+
+    /** What rides in the query string of a `PUT /v1/charts/{hash}` - see the server's docs. */
+    data class UploadMeta(
+        val displayName: String,
+        val title: String?,
+        val artist: String?,
+        val kind: String?,
+        val keyText: String?,
+        val part: String?,
+        val workTitle: String?,
+    )
+
+    sealed interface UploadResult {
+        data class Ok(val record: ChartRecord, val created: Boolean) : UploadResult
+        data class Failed(val reason: String) : UploadResult
     }
 
     /** Exchanges a pairing code for this device's own token. No token is sent - there isn't one yet. */
@@ -172,6 +189,70 @@ object ChartServeClient {
         )
     }
 
+    /**
+     * Publishes a chart, streaming [openStream]'s bytes straight to the
+     * server rather than holding them in memory - a scanned songbook is
+     * exactly the file this app should not be reading whole into a `ByteArray`.
+     *
+     * Only succeeds when this device was paired with publish rights - see
+     * `org.chartserve.Auth.canPublish` on the server - or holds the admin
+     * token, which this app never does.
+     */
+    suspend fun uploadChart(
+        serverUrl: String,
+        token: String,
+        contentHash: String,
+        meta: UploadMeta,
+        contentLength: Long,
+        openStream: () -> InputStream,
+    ): UploadResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val query = buildString {
+                append("displayName=").append(encodeQuery(meta.displayName))
+                meta.title?.let { append("&title=").append(encodeQuery(it)) }
+                meta.artist?.let { append("&artist=").append(encodeQuery(it)) }
+                meta.kind?.let { append("&kind=").append(encodeQuery(it)) }
+                meta.keyText?.let { append("&keyText=").append(encodeQuery(it)) }
+                meta.part?.let { append("&part=").append(encodeQuery(it)) }
+                meta.workTitle?.let { append("&workTitle=").append(encodeQuery(it)) }
+            }
+            val connection = open(
+                serverUrl,
+                "/v1/charts/${contentHash.encodeSegment()}?$query",
+                token,
+                method = "PUT",
+            )
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/octet-stream")
+            if (contentLength > 0) {
+                connection.setFixedLengthStreamingMode(contentLength)
+            } else {
+                connection.setChunkedStreamingMode(64 * 1024)
+            }
+            openStream().use { input ->
+                connection.outputStream.use { output -> input.copyTo(output, 64 * 1024) }
+            }
+            val code = connection.responseCode
+            val text = readTextResult(connection)
+            code to text
+        }.fold(
+            onSuccess = { (code, text) ->
+                when (text) {
+                    is CallResult.Failed -> UploadResult.Failed(text.reason)
+                    is CallResult.Ok -> runCatching {
+                        json.decodeFromString(ChartRecord.serializer(), text.value)
+                    }.fold(
+                        onSuccess = { UploadResult.Ok(it, created = code == 201) },
+                        onFailure = {
+                            UploadResult.Failed("ChartServe answered with something this app could not read.")
+                        },
+                    )
+                }
+            },
+            onFailure = { UploadResult.Failed(describe(it)) },
+        )
+    }
+
     // ---------------------------------------------------------------- plumbing
 
     private sealed interface CallResult<T> {
@@ -229,6 +310,9 @@ object ChartServeClient {
     private fun String.encodeSegment(): String =
         java.net.URLEncoder.encode(this, "UTF-8").replace("+", "%20")
 
+    /** `+` for space is the query-string convention, and Ktor decodes it that way. */
+    private fun encodeQuery(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+
     /**
      * Written out rather than using `readNBytes`, which is a Java 9 API and does
      * not reach Android until API 33 - on a minSdk 26 build that is a crash on
@@ -249,7 +333,7 @@ object ChartServeClient {
 
     private fun describeHttp(code: Int, detail: String?): String = when (code) {
         401 -> "This device isn't paired with that server yet."
-        403 -> detail ?: "That pairing code is not valid. Ask for a fresh one."
+        403 -> detail ?: "That wasn't allowed."
         404 -> "Not found on that server."
         413 -> detail ?: "That was too large for the server to accept."
         in 500..599 -> "The server returned an error ($code). Try again shortly."
