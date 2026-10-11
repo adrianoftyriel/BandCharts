@@ -13,7 +13,7 @@ result the way an arranger would write it.
 
 ## Status
 
-**v0.1.1-dev.** Everything described below is implemented. The music theory, set
+**v0.1.2-dev.** Everything described below is implemented. The music theory, set
 list, band-sync and update layers are covered by 390 tests that run on a plain
 JVM; the app layer adds its own.
 
@@ -787,7 +787,7 @@ covered by no test:
   An Ultimate Guitar link goes down a tested path; anything else is fetched and
   shown to you, which is a design that assumes you will look at it.
 
-Treat v0.1.1 as something to try at a rehearsal before trusting at a gig.
+Treat v0.1.2 as something to try at a rehearsal before trusting at a gig.
 
 ---
 
