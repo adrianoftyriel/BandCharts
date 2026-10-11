@@ -71,6 +71,11 @@ object ChartServeClient {
         data class Failed(val reason: String) : SetlistBodyResult
     }
 
+    sealed interface DeleteResult {
+        data object Ok : DeleteResult
+        data class Failed(val reason: String) : DeleteResult
+    }
+
     sealed interface DownloadResult {
         data class Ok(val file: File) : DownloadResult
         data class Failed(val reason: String) : DownloadResult
@@ -287,6 +292,35 @@ object ChartServeClient {
             onFailure = { UploadResult.Failed(describe(it)) },
         )
     }
+
+    /**
+     * Removes a chart from the server, for everyone in the band.
+     *
+     * Offered only to a device paired with publish rights. A server that has
+     * not been taught to let such a device delete answers `403` with a sentence
+     * saying so, which is what the user sees. A chart that is already gone
+     * counts as removed - the result wanted is the same.
+     */
+    suspend fun deleteChart(serverUrl: String, token: String, contentHash: String): DeleteResult =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = open(
+                    serverUrl,
+                    "/v1/charts/${contentHash.encodeSegment()}",
+                    token,
+                    method = "DELETE",
+                )
+                try {
+                    val code = connection.responseCode
+                    when {
+                        code in 200..299 || code == 404 -> DeleteResult.Ok
+                        else -> DeleteResult.Failed(describeHttp(code, apiError(connection)))
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrElse { DeleteResult.Failed(describe(it)) }
+        }
 
     // ---------------------------------------------------------------- plumbing
 

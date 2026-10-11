@@ -662,6 +662,30 @@ class LibraryController(
     }
 
     /**
+     * Removes a chart from the band server itself, for the whole band - not
+     * just from this device's list, which is what [removeFromLibrary] does.
+     *
+     * Only when this device was paired with publish rights. The server has the
+     * final say: if it refuses, its reason is shown and nothing changes here.
+     * On success the catalogue is re-read, which also drops the cached copy.
+     */
+    fun removeFromChartServe(song: SongRef) {
+        val current = settings.settings.value
+        val serverUrl = current.chartServeUrl
+        val token = current.chartServeToken
+        val hash = song.contentHash
+        if (serverUrl.isBlank() || token.isBlank() || !current.chartServeCanPublish) return
+        if (song.sourceId != CHARTSERVE_SOURCE_ID || hash == null) return
+
+        scope.launch {
+            when (val result = ChartServeClient.deleteChart(serverUrl, token, hash)) {
+                is ChartServeClient.DeleteResult.Failed -> lastError = result.reason
+                ChartServeClient.DeleteResult.Ok -> syncChartServe()
+            }
+        }
+    }
+
+    /**
      * Keeps an independent copy of a band-server chart on this device.
      *
      * Independent on purpose: this copy is not touched by a future sync, so

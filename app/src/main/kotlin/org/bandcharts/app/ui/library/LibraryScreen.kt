@@ -120,6 +120,7 @@ fun LibraryScreen(
     var showNewChart by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<SongRef?>(null) }
     var deleting by remember { mutableStateOf<SongRef?>(null) }
+    var removingFromServer by remember { mutableStateOf<SongRef?>(null) }
     var transposing by remember { mutableStateOf<SongRef?>(null) }
 
     // What a bulk action is about. Resolved from the selection at the moment
@@ -203,6 +204,17 @@ fun LibraryScreen(
                 deleting = null
             },
             onDismiss = { deleting = null },
+        )
+    }
+
+    removingFromServer?.let { song ->
+        ConfirmRemoveFromServerDialog(
+            song = song,
+            onConfirm = {
+                controller.removeFromChartServe(song)
+                removingFromServer = null
+            },
+            onDismiss = { removingFromServer = null },
         )
     }
 
@@ -433,6 +445,7 @@ fun LibraryScreen(
                         // already come from there.
                         canPublish = settings.chartServeCanPublish && !fromChartServe,
                         canCopyToDevice = fromChartServe,
+                        canRemoveFromServer = settings.chartServeCanPublish && fromChartServe,
                         selecting = controller.selecting,
                         selected = song.id in controller.selection,
                         // While a selection is running both gestures mean the
@@ -457,6 +470,7 @@ fun LibraryScreen(
                             controller.copyToChartServe(listOf(song), removeAfter = true)
                         },
                         onCopyToDevice = { controller.copyChartServeSongsToDevice(listOf(song)) },
+                        onRemoveFromServer = { removingFromServer = song },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 }
@@ -805,6 +819,31 @@ private fun ConfirmDeleteFileDialog(
     )
 }
 
+@Composable
+private fun ConfirmRemoveFromServerDialog(
+    song: SongRef,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remove ${song.bestTitle} from the band server?") },
+        text = {
+            Text(
+                "This removes the chart for everyone in the band, the next time their " +
+                    "phones sync. Copies already kept on a device are not affected.\n\n" +
+                    "To only stop seeing it on this phone, use \"Remove from library\" instead.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Remove", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 /**
  * The offer to undo a removal.
  *
@@ -874,6 +913,7 @@ private fun SongRow(
     canDeleteFile: () -> Boolean,
     canPublish: Boolean,
     canCopyToDevice: Boolean,
+    canRemoveFromServer: Boolean,
     selecting: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -887,6 +927,7 @@ private fun SongRow(
     onCopyToChartServe: () -> Unit,
     onMoveToChartServe: () -> Unit,
     onCopyToDevice: () -> Unit,
+    onRemoveFromServer: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -912,6 +953,7 @@ private fun SongRow(
             canEdit = song.isTransposable,
             canPublish = canPublish,
             canCopyToDevice = canCopyToDevice,
+            canRemoveFromServer = canRemoveFromServer,
             onDismiss = { menuOpen = false },
             onAddToSetlist = {
                 menuOpen = false
@@ -949,6 +991,10 @@ private fun SongRow(
                 menuOpen = false
                 onCopyToDevice()
             },
+            onRemoveFromServer = {
+                menuOpen = false
+                onRemoveFromServer()
+            },
         )
         SongRowBody(
             song = song,
@@ -971,6 +1017,7 @@ private fun SongMenu(
     canEdit: Boolean,
     canPublish: Boolean,
     canCopyToDevice: Boolean,
+    canRemoveFromServer: Boolean,
     onDismiss: () -> Unit,
     onAddToSetlist: () -> Unit,
     onTranspose: () -> Unit,
@@ -981,6 +1028,7 @@ private fun SongMenu(
     onCopyToChartServe: () -> Unit,
     onMoveToChartServe: () -> Unit,
     onCopyToDevice: () -> Unit,
+    onRemoveFromServer: () -> Unit,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(text = { Text("Add to a set list") }, onClick = onAddToSetlist)
@@ -999,6 +1047,14 @@ private fun SongMenu(
             DropdownMenuItem(text = { Text("Copy to this device") }, onClick = onCopyToDevice)
         }
         DropdownMenuItem(text = { Text("Remove from library") }, onClick = onRemove)
+        if (canRemoveFromServer) {
+            DropdownMenuItem(
+                text = {
+                    Text("Remove from the band server\u2026", color = MaterialTheme.colorScheme.error)
+                },
+                onClick = onRemoveFromServer,
+            )
+        }
         if (canDeleteFile) {
             HorizontalDivider()
             DropdownMenuItem(
