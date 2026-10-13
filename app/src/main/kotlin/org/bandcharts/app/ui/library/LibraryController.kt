@@ -858,6 +858,10 @@ class LibraryController(
      */
     fun saveChart(title: String, text: String, replacing: SongRef?, onSaved: (SongRef) -> Unit) {
         if (savingChart) return
+        if (replacing?.sourceId == CHARTSERVE_SOURCE_ID) {
+            saveChartServeChart(title, text, replacing, onSaved)
+            return
+        }
         scope.launch {
             savingChart = true
             saveError = null
@@ -877,6 +881,167 @@ class LibraryController(
                 saveError = failure.message?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { "Could not save the chart: $it" }
                     ?: "Could not save the chart to this device."
+            }
+        }
+    }
+
+    /** Whether this device may change what the band server holds. */
+    private fun canWriteToChartServe(): Boolean {
+        val current = settings.settings.value
+        return current.chartServeUrl.isNotBlank() && current.chartServeToken.isNotBlank() &&
+            current.chartServeCanPublish
+    }
+
+    /**
+     * Saves an edit to a band-server chart, to the server.
+     *
+     * A chart's identity on the server is its content hash, so changed text is
+     * a different chart: the edit is published under its new hash, and the
+     * original is then removed so the band is not left with both. If the
+     * server will not let this device delete, the original stays - an edit
+     * that cannot replace is still never lost - and the new one is there
+     * beside it.
+     *
+     * The saved chart has a new id, so a set list holding the old one finds it
+     * again by title, not by id.
+     */
+    private fun saveChartServeChart(
+        title: String,
+        text: String,
+        replacing: SongRef,
+        onSaved: (SongRef) -> Unit,
+    ) {
+        if (!canWriteToChartServe()) {
+            saveError = "This device is not paired with the band server for publishing, " +
+                "so it cannot save changes there."
+            return
+        }
+        val current = settings.settings.value
+        val serverUrl = current.chartServeUrl
+        val token = current.chartServeToken
+
+        scope.launch {
+            savingChart = true
+            saveError = null
+
+            val bytes = text.toByteArray()
+            val newHash = DocumentSources.hashOf(bytes)
+            val oldHash = replacing.contentHash
+            val record = existingRecord(serverUrl, token, oldHash)
+            val directory = File(context.filesDir, CHARTSERVE_DIRECTORY).apply { mkdirs() }
+            val target = File(directory, newHash)
+
+            withContext(Dispatchers.IO) { target.writeBytes(bytes) }
+            val result = publishRecord(
+                serverUrl = serverUrl,
+                token = token,
+                hash = newHash,
+                file = target,
+                record = record,
+                title = title.ifBlank { null } ?: replacing.bestTitle,
+                keyText = detectedKey(text),
+                displayName = replacing.displayName,
+                kind = replacing.kind.name,
+            )
+
+            when (result) {
+                is ChartServeClient.UploadResult.Failed -> {
+                    if (newHash != oldHash) target.delete()
+                    saveError = "Could not save the chart to the band server: ${result.reason}"
+                }
+                is ChartServeClient.UploadResult.Ok -> {
+                    if (oldHash != null && oldHash != newHash) {
+                        ChartServeClient.deleteChart(serverUrl, token, oldHash)
+                    }
+                    syncChartServe()
+                    val saved = index.value.findById(
+                        DocumentSources.stableId(CHARTSERVE_SOURCE_ID, newHash),
+                    )
+                    if (saved != null) {
+                        onSaved(saved)
+                    } else {
+                        saveError = "Saved to the band server, but it did not appear in the library. " +
+                            "Try Rescan."
+                    }
+                }
+            }
+            savingChart = false
+        }
+    }
+
+    /**
+     * The server's current record for a chart, so that a change to one field
+     * does not blank the ones this app does not hold - a part, a work title.
+     */
+    private suspend fun existingRecord(
+        serverUrl: String,
+        token: String,
+        hash: String?,
+    ): org.bandcharts.chartserve.ChartRecord? {
+        if (hash == null) return null
+        val result = ChartServeClient.fetchCatalogue(serverUrl, token)
+        return (result as? ChartServeClient.CatalogueResult.Ok)
+            ?.catalogue?.charts?.firstOrNull { it.contentHash == hash }
+    }
+
+    private suspend fun publishRecord(
+        serverUrl: String,
+        token: String,
+        hash: String,
+        file: File,
+        record: org.bandcharts.chartserve.ChartRecord?,
+        title: String,
+        keyText: String?,
+        displayName: String,
+        kind: String,
+    ): ChartServeClient.UploadResult = ChartServeClient.uploadChart(
+        serverUrl,
+        token,
+        hash,
+        ChartServeClient.UploadMeta(
+            displayName = record?.displayName ?: displayName,
+            title = title,
+            artist = record?.artist,
+            kind = record?.kind ?: kind,
+            keyText = keyText ?: record?.keyText,
+            part = record?.part,
+            workTitle = record?.workTitle,
+        ),
+        file.length(),
+    ) { file.inputStream() }
+
+    /**
+     * Renames a band-server chart on the server, so the whole band sees it.
+     * The bytes do not change, so the hash and the id do not either.
+     */
+    private fun renameOnChartServe(song: SongRef, name: String) {
+        val current = settings.settings.value
+        val serverUrl = current.chartServeUrl
+        val token = current.chartServeToken
+        val hash = song.contentHash ?: return
+        val file = runCatching { File(Uri.parse(song.uri).path.orEmpty()) }.getOrNull()
+        if (file == null || !file.exists()) {
+            lastError = "That chart is not on this device yet. Rescan, then try again."
+            return
+        }
+        val newTitle = name.trim().ifEmpty { song.title ?: song.displayName.substringBeforeLast('.') }
+
+        scope.launch {
+            val record = existingRecord(serverUrl, token, hash)
+            when (
+                val result = publishRecord(
+                    serverUrl, token, hash, file, record, newTitle,
+                    keyText = song.keyText, displayName = song.displayName, kind = song.kind.name,
+                )
+            ) {
+                is ChartServeClient.UploadResult.Failed -> lastError = result.reason
+                is ChartServeClient.UploadResult.Ok -> {
+                    // The server's title is now the name; a rename kept only on
+                    // this phone would say something different.
+                    repository.updateSong(song.id) { it.withRename("") }
+                    syncChartServe()
+                    setlists.renameSong(song.id, newTitle, System.currentTimeMillis())
+                }
             }
         }
     }
@@ -950,6 +1115,10 @@ class LibraryController(
      * the set list back to the file's own title rather than to blank.
      */
     fun rename(song: SongRef, name: String) {
+        if (song.sourceId == CHARTSERVE_SOURCE_ID && canWriteToChartServe()) {
+            renameOnChartServe(song, name)
+            return
+        }
         scope.launch {
             val index = repository.updateSong(song.id) { it.withRename(name) }
             // Straight off the songs list rather than through findById, which

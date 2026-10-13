@@ -60,6 +60,7 @@ import org.bandcharts.app.ui.common.Header
 import org.bandcharts.app.ui.common.HeaderAction
 import org.bandcharts.app.ui.common.Pill
 import org.bandcharts.app.ui.common.SectionLabel
+import org.bandcharts.library.FileKind
 import org.bandcharts.library.LibraryIndex
 import org.bandcharts.library.SongRef
 import org.bandcharts.library.SourceKind
@@ -446,6 +447,16 @@ fun LibraryScreen(
                         canPublish = settings.chartServeCanPublish && !fromChartServe,
                         canCopyToDevice = fromChartServe,
                         canRemoveFromServer = settings.chartServeCanPublish && fromChartServe,
+                        // A chart on the band server is edited by republishing
+                        // it, so only a device that can publish is offered it,
+                        // and only for a plain-text chart: a Word document
+                        // would be sent back as something that is not one.
+                        canEdit = song.isTransposable && (
+                            !fromChartServe || (
+                                settings.chartServeCanPublish &&
+                                    (song.kind == FileKind.CHORDPRO || song.kind == FileKind.TEXT)
+                                )
+                            ),
                         selecting = controller.selecting,
                         selected = song.id in controller.selection,
                         // While a selection is running both gestures mean the
@@ -914,6 +925,7 @@ private fun SongRow(
     canPublish: Boolean,
     canCopyToDevice: Boolean,
     canRemoveFromServer: Boolean,
+    canEdit: Boolean,
     selecting: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -950,7 +962,7 @@ private fun SongRow(
             canTranspose = song.isTransposable,
             // Only a chart made of characters has anything to edit. A PDF gets
             // Rename, which is the whole of what can be changed about it.
-            canEdit = song.isTransposable,
+            canEdit = canEdit,
             canPublish = canPublish,
             canCopyToDevice = canCopyToDevice,
             canRemoveFromServer = canRemoveFromServer,
