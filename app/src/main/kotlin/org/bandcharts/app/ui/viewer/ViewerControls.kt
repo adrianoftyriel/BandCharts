@@ -49,6 +49,7 @@ fun ViewerControls(
     onOpenSetlist: () -> Unit,
     onOpenSession: () -> Unit,
     onOpenSettings: () -> Unit,
+    onEdit: () -> Unit,
     onClose: () -> Unit,
     onBack: () -> Unit,
     unicodeAccidentals: Boolean,
@@ -168,6 +169,10 @@ fun ViewerControls(
             TextButton(onClick = onOpenSetlist) { Text("Set lists") }
             TextButton(onClick = onOpenSession) { Text("Session") }
             TextButton(onClick = onOpenSettings) { Text("Settings") }
+            // Only text charts: a PDF or a scan has nothing to edit.
+            if (song?.isTransposable == true) {
+                TextButton(onClick = onEdit) { Text("Edit") }
+            }
         }
     }
 }

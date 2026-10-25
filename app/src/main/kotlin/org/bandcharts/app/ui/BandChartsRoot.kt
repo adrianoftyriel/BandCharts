@@ -741,7 +741,15 @@ fun BandChartsRoot(
                                                 -1,
                                                 settings.viewer.unicodeAccidentals,
                                             )
-                                            navigator.replace(Screen.Viewer(saved.id))
+                                            // Opened from the viewer's own Edit button, the
+                                            // chart is already underneath: pop to it
+                                            // rather than stacking a second copy.
+                                            val below = navigator.stack.getOrNull(navigator.stack.size - 2)
+                                            if (below is Screen.Viewer && below.songId == saved.id) {
+                                                navigator.back()
+                                            } else {
+                                                navigator.replace(Screen.Viewer(saved.id))
+                                            }
                                         }
                                     }
                                 },
@@ -841,6 +849,12 @@ fun BandChartsRoot(
                                 onOpenSettings = {
                                     controlsVisible = false
                                     navigator.go(Screen.Settings)
+                                },
+                                onEdit = {
+                                    controlsVisible = false
+                                    viewerController.song?.let {
+                                        navigator.go(Screen.SongEditor(songId = it.id))
+                                    }
                                 },
                                 onClose = { controlsVisible = false },
                                 onBack = {
